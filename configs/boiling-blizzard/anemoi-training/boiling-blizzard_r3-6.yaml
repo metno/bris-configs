@@ -1,0 +1,185 @@
+defaults:
+  - data: zarr
+  - dataloader: native_grid
+  - diagnostics: evaluation
+  - datamodule: ens
+  - hardware: leonardo
+  - graph: n320
+  - model: graphtransformer_ens
+  - training: ensemble
+  - _self_
+
+
+hydra:  
+  output_subdir: null  
+  run:  
+    dir: .
+  searchpath:
+    - file:///leonardo_work/DestE_330_25/enordhag/anemoi-core/training/src/anemoi/training/config/
+    - file://../../
+
+config_validation: True
+
+data:
+  frequency: 6h
+  resolution: N320
+  forcing:
+  - cos_latitude
+  - cos_longitude
+  - sin_latitude
+  - sin_longitude
+  - cos_julian_day
+  - cos_local_time
+  - sin_julian_day
+  - sin_local_time
+  - insolation
+  - lsm
+  - z
+
+  diagnostic:
+  - tp
+  - ssrd
+  - strd
+
+  normalizer:
+    max: 
+    - z
+    none:
+    - cos_latitude
+    - cos_longitude
+    - sin_latitude
+    - sin_longitude
+    - cos_julian_day
+    - cos_local_time
+    - sin_julian_day
+    - sin_local_time
+    - insolation
+    - lsm
+    - lcc
+    - mcc
+    - hcc
+    - tcc
+
+dataloader:
+  dataset: 
+    join:
+      - dataset: ${hardware.paths.data}/${hardware.files.dataset_atm}
+        drop: [cp, slor, sdor, q_600, t_600, u_600, v_600, w_600, z_600]
+      - dataset: ${hardware.paths.data}/${hardware.files.dataset_land}
+        select: [lcc, mcc, hcc, tcc, strd, ssrd]
+    adjust: [start, end]
+    
+  num_workers:
+    training: 4
+    validation: 4
+    test: 4
+
+  limit_batches:
+    training: 1967
+    validation: null
+    test: null
+
+  prefetch_factor: 2
+  validation_rollout: 1
+
+  batch_size:
+    training: 1
+    validation: 1
+    test: 1
+
+  training:
+    start: 1979-01-01
+    end: 2021-12-31
+    reorder: sort
+
+  validation:
+    start: 2022-01-01
+    end: 2022-12-31
+    reorder: sort
+
+  test:
+    start: 2022-01-01
+    end: 2022-12-31
+    reorder: sort
+
+diagnostics:
+  plot:
+    callbacks: []
+  log:
+    mlflow:
+      enabled: True
+      offline: True
+      authentication: True
+      tracking_uri: https://mlflow.ecmwf.int
+      experiment_name: metno
+      run_name: boiling-blizzard_r3-6
+      system: True
+    interval: 10
+    wandb:
+      entity: null
+  
+  checkpoint:
+    every_n_minutes:
+      save_frequency: 30
+      num_models_saved: 1
+    every_n_epochs:
+      save_frequency: 1
+      num_models_saved: -1
+ 
+hardware:
+  files:
+    dataset_atm: ERA5/aifs-ea-an-oper-0001-mars-n320-1979-2022-6h-v6.zarr
+    dataset_land: ERA5/aifs-ea-an-oper-0001-mars-n320-1979-2023-6h-v1-land.zarr
+    graph: boiling-blizzard.pt
+  num_gpus_per_model: 4
+  num_gpus_per_ensemble: 16
+
+graph:
+  overwrite: False
+  
+model:
+  num_channels: 1024
+  trainable_parameters:
+    data: 0
+    hidden: 0
+    data2hidden: 0
+    hidden2data: 0
+    hidden2hidden: 0
+  processor:
+    num_chunks: 8
+  encoder:
+    num_chunks: 8
+  decoder:
+    num_chunks: 8
+
+  bounding:
+    - _target_: anemoi.models.layers.bounding.ReluBounding #[0, infinity)
+      variables:
+        - tp
+    - _target_: anemoi.models.layers.bounding.HardtanhBounding #[min_val, max_val]
+      variables:
+        - tcc
+        - hcc
+        - mcc
+        - lcc
+      min_val: 0
+      max_val: 1
+
+training:
+  fork_run_id: 4dc1ab737f5b485dbdade4a772819a00
+  run_id: null
+  max_epochs: null
+  ensemble_size_per_device: 1
+  max_steps: 76000
+  load_weights_only: False
+  transfer_learning: False
+  lr:
+    rate: 6.25e-7
+    min: 6.0e-6
+    warmup: 100  # 1000 for rollout 1, 100 for rollout 2
+  training_loss:
+    alpha: 0.95
+  rollout:
+    start: 3
+    epoch_increment: 1
+    max: 6

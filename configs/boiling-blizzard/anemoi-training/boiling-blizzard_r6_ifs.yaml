@@ -1,0 +1,178 @@
+defaults:
+  - data: zarr
+  - dataloader: native_grid
+  - diagnostics: evaluation
+  - datamodule: ens
+  - hardware: leonardo
+  - graph: n320
+  - model: graphtransformer_ens
+  - training: ensemble
+  - _self_
+
+
+hydra:  
+  output_subdir: null  
+  run:  
+    dir: .
+  searchpath:
+    - file:///leonardo_work/DestE_330_25/enordhag/anemoi-core/training/src/anemoi/training/config/
+    - file://../../
+
+config_validation: True
+
+data:
+  frequency: 6h
+  resolution: N320
+  forcing:
+  - cos_latitude
+  - cos_longitude
+  - sin_latitude
+  - sin_longitude
+  - cos_julian_day
+  - cos_local_time
+  - sin_julian_day
+  - sin_local_time
+  - insolation
+  - lsm
+  - z
+
+  diagnostic:
+  - tp
+  - ssrd
+  - strd
+
+  normalizer:
+    max: 
+    - z
+    none:
+    - cos_latitude
+    - cos_longitude
+    - sin_latitude
+    - sin_longitude
+    - cos_julian_day
+    - cos_local_time
+    - sin_julian_day
+    - sin_local_time
+    - insolation
+    - lsm
+    - lcc
+    - mcc
+    - hcc
+    - tcc
+
+dataloader:
+  dataset: 
+    dataset: ${hardware.files.dataset}
+    select: [10u, 10v, 2d, 2t, cos_julian_day, cos_latitude, cos_local_time, cos_longitude, hcc, insolation, lcc, lsm, mcc, msl, q_100, q_1000, q_150, q_200, q_250, q_300, q_400, q_50, q_500, q_700, q_850, q_925, sin_julian_day, sin_latitude, sin_local_time, sin_longitude, skt, sp, ssrd, strd, t_100, t_1000, t_150, t_200, t_250, t_300, t_400, t_50, t_500, t_700, t_850, t_925, tcc, tcw, tp, u_100, u_1000, u_150, u_200, u_250, u_300, u_400, u_50, u_500, u_700, u_850, u_925, v_100, v_1000, v_150, v_200, v_250, v_300, v_400, v_50, v_500, v_700, v_850, v_925, w_100, w_1000, w_150, w_200, w_250, w_300, w_400, w_50, w_500, w_700, w_850, w_925, z, z_100, z_1000, z_150, z_200, z_250, z_300, z_400, z_50, z_500, z_700, z_850, z_925]
+    reorder: sort
+    
+  num_workers:
+    training: 4
+    validation: 4
+    test: 4
+
+  limit_batches:
+    training: null
+    validation: null
+    test: null
+
+  prefetch_factor: 2
+  validation_rollout: 1
+
+  batch_size:
+    training: 1
+    validation: 1
+    test: 1
+
+  training:
+    start: 2016-01-01
+    end: 2021-12-31
+
+  validation:
+    start: 2022-01-01
+    end: 2022-12-31
+
+  test:
+    start: 2022-01-01
+    end: 2022-12-31
+
+diagnostics:
+  plot:
+    callbacks: []
+  log:
+    mlflow:
+      enabled: True
+      offline: True
+      authentication: True
+      tracking_uri: https://mlflow.ecmwf.int
+      experiment_name: metno
+      run_name: boiling-blizzard_r2_ifs
+      system: True
+    interval: 10
+    wandb:
+      entity: null
+  
+  checkpoint:
+    every_n_minutes:
+      save_frequency: 30
+      num_models_saved: 1
+    every_n_epochs:
+      save_frequency: 1
+      num_models_saved: -1
+ 
+hardware:
+  files:
+    dataset: /leonardo_work/DestE_340_25/ai-ml/datasets/aifs-od-an-oper-0001-mars-n320-2016-2025-6h-v1-for-single-v2.zarr
+    graph: boiling-blizzard.pt
+  num_gpus_per_model: 4
+  num_gpus_per_ensemble: 16
+
+graph:
+  overwrite: False
+  
+model:
+  num_channels: 1024
+  trainable_parameters:
+    data: 0
+    hidden: 0
+    data2hidden: 0
+    hidden2data: 0
+    hidden2hidden: 0
+  processor:
+    num_chunks: 8
+  encoder:
+    num_chunks: 8
+  decoder:
+    num_chunks: 8
+
+  bounding:
+    - _target_: anemoi.models.layers.bounding.ReluBounding #[0, infinity)
+      variables:
+        - tp
+    - _target_: anemoi.models.layers.bounding.HardtanhBounding #[min_val, max_val]
+      variables:
+        - tcc
+        - hcc
+        - mcc
+        - lcc
+      min_val: 0
+      max_val: 1
+
+training:
+  fork_run_id: 7303355b57f445019f41b677fe9d058c
+  run_id: null
+  max_epochs: 5
+  ensemble_size_per_device: 1
+  max_steps: 5000
+  load_weights_only: True
+  transfer_learning: True
+  lr:
+    rate: 6.25e-7
+    min: 6.0e-6
+    warmup: 100
+  training_loss:
+    alpha: 0.95
+  rollout:
+    start: 6
+    epoch_increment: 0
+    max: 6
