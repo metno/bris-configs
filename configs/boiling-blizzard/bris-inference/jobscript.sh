@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH -A AIFAC_5C0_154 #DestE_340_26 #EUHPC_R04_079
+#SBATCH -A EUHPC_R06_263
 #SBATCH -p boost_usr_prod
 #SBATCH -q boost_qos_dbg
 #SBATCH --nodes=2
@@ -10,17 +10,13 @@
 #SBATCH --mem=0
 #SBATCH --time=00:30:00
 #SBATCH --job-name=boiling-blizzard
-#SBATCH --output=logs/infer_verif.out
-# #SBATCH --dependency=afterany:35529068
+#SBATCH --output=logs/boiling-blizzard.out
 
 set -euxo pipefail
-
-#SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-#cd "${SCRIPT_DIR}"
 
 export HYDRA_FULL_ERROR=1
 
 # Recreate/update the local project environment from uv.lock before launching.
 uv sync --locked
 
-srun uv run --locked bris --config=config.yaml
+srun uv run --locked bris --config=boiling-blizzard.yaml
