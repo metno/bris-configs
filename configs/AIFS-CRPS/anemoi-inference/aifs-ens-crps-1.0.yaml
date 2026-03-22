@@ -20,4 +20,4 @@ input:
 
 output:
   netcdf:
-    path: ./aifs-ens-crps-1.0.nc
+    path: ./netcdf/aifs-ens-crps-1.0-__RUN_ID__.nc
