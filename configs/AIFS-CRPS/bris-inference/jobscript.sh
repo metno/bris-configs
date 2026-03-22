@@ -1,8 +1,7 @@
 #!/bin/bash
 
-#SBATCH -A AIFAC_5C0_154
+#SBATCH -A EUHPC_R06_263
 #SBATCH -p boost_usr_prod
-# #SBATCH -q boost_qos_dbg
 #SBATCH --nodes=40
 #SBATCH --ntasks-per-node=4
 #SBATCH --gpus-per-node=4
