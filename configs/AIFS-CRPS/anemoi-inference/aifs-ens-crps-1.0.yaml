@@ -1,0 +1,23 @@
+description: AIFS-CRPS checkpoint inference config for anemoi-inference.
+
+checkpoint: ./aifs-ens-crps-1.0.ckpt
+runner: default
+
+# Override on the CLI as needed, for example:
+#   anemoi-inference run aifs-ens-crps-1.0.yaml date=2024-01-01T00:00:00 lead_time=24h
+date: 2024-01-01T00:00:00
+lead_time: 6h
+
+device: cuda
+verbosity: 1
+report_error: true
+write_initial_state: true
+output_frequency: 6h
+
+input:
+  dataset:
+    dataset: /leonardo_work/DestE_340_25/ai-ml/datasets/aifs-od-an-oper-0001-mars-n320-2016-2025-6h-v1-for-single-v2.zarr
+
+output:
+  netcdf:
+    path: ./aifs-ens-crps-1.0.nc
