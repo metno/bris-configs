@@ -3,6 +3,7 @@ defaults:
   - override hydra/hydra_logging: none
   - _self_
   
+run_name: aifs-crps
 
 verif_dir_point: /leonardo_work/EUHPC_R06_263/bris/verification/nordic/6h/2024 
 verif_dir_midlat: /leonardo_work/EUHPC_R06_263/bris/verification/midlatitude_outside_nordic/6h/2024

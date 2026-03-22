@@ -14,7 +14,7 @@ dependencies = [
   "packaging",
   "setuptools",
   "psutil",
-  "flash-attn",
+  "flash-attn==2.7.4.post1",
   "bris",
 ]
 

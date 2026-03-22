@@ -7,9 +7,9 @@ This directory is a `uv` project for running the AIFS-CRPS Bris-inference job.
 - `pyproject.toml`: project definition
 - `uv.lock`: locked dependency set
 - `.venv/`: local virtual environment managed by `uv`
-- `config.yaml`: BRIS runtime configuration
+- `aifs-crps.yaml`: BRIS runtime configuration
 - `jobscript.sh`: Slurm submission script
-- `aifs-ens-crps-1.0.ckpt`: checkpoint used by `config.yaml`
+- `aifs-ens-crps-1.0.ckpt`: checkpoint used by `aifs-crps.yaml`
 
 ## Setup
 
@@ -20,6 +20,8 @@ uv sync
 ```
 
 This creates or updates `.venv` from `pyproject.toml` and `uv.lock`.
+The environment also expects `flash-attn==2.7.4.post1`, which is required to
+load the shipped checkpoint.
 
 If you change dependencies, refresh the lock and sync again:
 
@@ -33,13 +35,13 @@ uv sync
 Run from this directory:
 
 ```bash
-uv run bris --config=config.yaml
+uv run bris --config=aifs-crps.yaml
 ```
 
 To force the exact lockfile environment:
 
 ```bash
-uv run --locked bris --config=config.yaml
+uv run --locked bris --config=aifs-crps.yaml
 ```
 
 If you need the same module stack as the Slurm job, load it before running:
@@ -51,6 +53,8 @@ module load cuda/12.2
 module load hpcx-mpi
 ```
 
+The locked PyTorch 2.5.0 environment bundles CUDA 12.4 user-space libraries via PyPI, so the job script prepends `.venv` NVIDIA libraries to `LD_LIBRARY_PATH` to avoid `libnvJitLink.so.12` symbol mismatches with the older cluster CUDA module.
+
 ## Running with Slurm
 
 Submit from this directory:
@@ -61,12 +65,12 @@ sbatch jobscript.sh
 
 The script will:
 
-- change into this directory
-- create `logs/` if needed
+- change into this directory and create `logs/` if needed
 - load the required compiler, CUDA, and MPI modules
-- export the Python and SQLite library paths used by this setup
-- run `uv sync --locked`
-- launch `bris` with `srun uv run --locked bris --config=config.yaml`
+- prepend the vendored NVIDIA libraries from `.venv` to `LD_LIBRARY_PATH`
+- run `uv sync`
+- install `flash-attn==2.7.4.post1` into `.venv` if it is missing
+- launch `bris` with `srun uv run --locked bris --config=aifs-crps.yaml`
 
 ## Notes
 
