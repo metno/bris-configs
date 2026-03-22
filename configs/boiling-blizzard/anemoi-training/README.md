@@ -4,8 +4,10 @@ This folder contains the files needed to retrain the boiling-blizzard checkpoint
 
 ## Files
 
-- `freeze.txt`: package snapshot for the training environment
-- `.venv/`: local uv-created virtual environment
+- `freeze.txt`: package snapshot used to reconstruct the training environment
+- `pyproject.toml`: uv project definition
+- `uv.lock`: uv lockfile
+- `.venv/`: local uv environment
 - `jobscript.sh`: Slurm jobscript that runs from this directory
 - `boiling-blizzard_r1.yaml`
 - `boiling-blizzard_r2.yaml`
@@ -17,17 +19,17 @@ This folder contains the files needed to retrain the boiling-blizzard checkpoint
 Run from this directory:
 
 ```bash
-source .venv/bin/activate
+uv sync
 ```
 
-The local `.venv` has already been created from `freeze.txt` using Python `3.11.7`.
+This folder is now a `uv` project. The environment is described by `pyproject.toml` and `uv.lock`, and `uv sync` will create or update `.venv`.
 
 ## Running locally
 
-After activating `.venv`, run:
+After syncing the environment, run:
 
 ```bash
-anemoi-training train --config-name=boiling-blizzard_r1.yaml
+uv run anemoi-training train --config-name=boiling-blizzard_r1.yaml
 ```
 
 Swap the config name for the stage you want to run.
@@ -53,8 +55,8 @@ The script will:
 
 - change into this directory
 - create `logs/` if needed
-- activate `.venv`
-- launch `anemoi-training train --config-name=boiling-blizzard_r1.yaml`
+- sync or reuse `.venv`
+- launch `uv run anemoi-training train --config-name=boiling-blizzard_r1.yaml`
 
 Update `jobscript.sh` for each stage by changing:
 

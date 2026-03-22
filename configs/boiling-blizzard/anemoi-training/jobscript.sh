@@ -20,7 +20,7 @@ mkdir -p logs
 
 export HYDRA_FULL_ERROR=1
 unset VIRTUAL_ENV
-source .venv/bin/activate
+uv sync
 
 # Update --config-name and the Slurm job/output names for each stage.
-srun anemoi-training train --config-name=boiling-blizzard_r1.yaml
+srun uv run anemoi-training train --config-name=boiling-blizzard_r1.yaml
