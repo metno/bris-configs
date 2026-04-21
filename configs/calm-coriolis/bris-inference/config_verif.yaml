@@ -1,0 +1,205 @@
+defaults:
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+  - _self_
+  
+# Change this
+run_name: calm-coriolis_r6_5y_30m
+run_hash: e4f2bd4fba734a3b8874201bf389f3df
+
+verif_dir_point: /leonardo_work/EUHPC_R06_263/bris/verification/nordic/6h/202504_202603 
+verif_dir_midlat: /leonardo_work/EUHPC_R06_263/bris/verification/midlatitude_outside_nordic/6h/202504_202603
+verif_dir_nordic: /leonardo_work/EUHPC_R06_263/bris/verification/nordic_25km/6h/202504_202603
+
+start_date: 2025-04-01T00:00:00
+end_date: 2026-04-08T18:00:00
+
+checkpoints:
+  forecaster:
+    checkpoint_path: /leonardo_work/DestE_330_25/anemoi/experiments/ens/checkpoint/${run_hash}/inference-last.ckpt
+    leadtimes: 40
+    static_forcings_dataset: null
+    switch_graph: null
+
+timestep: 6h
+frequency: 6h
+workdir: .
+
+dataset:
+  cutout:
+    - dataset: ${hardware.paths.data}/${hardware.files.dataset_lam}
+      reorder: sort
+      trim_edge: 50
+    - dataset: ${hardware.paths.data}/${hardware.files.dataset_global}
+      select: ${selected_vars}
+      reorder: sort
+  min_distance_km: 0
+  adjust: all
+
+dataloader:
+  batch_size: 1
+  prefetch_factor: 2
+  num_workers: 1
+  pin_memory: True
+
+  read_group_size: 1 #Do not change this, not implemented properly
+
+  datamodule:
+    _target_: bris.data.dataset.NativeGridDataset
+    _convert_: all
+
+hardware:
+  paths:
+    data: /leonardo_work/EUHPC_R06_263/bris/datasets
+  files:
+    dataset_global: IFS/aifs-od-an-oper-0001-mars-n320-2025-2026-04-08-6h-v2.zarr
+    dataset_lam: MEPS/meps-2p5km-202501-202604-6h-v7.zarr
+
+  num_gpus_per_node: ${oc.decode:${oc.env:SLURM_GPUS_PER_NODE}}
+  num_gpus_per_model: 4
+  num_members: 30
+  num_nodes: ${oc.decode:${oc.env:SLURM_NNODES}}
+
+model:
+  _target_: bris.model.brispredictor.BrisPredictor
+  _convert_: all
+  fcstep_const: True
+
+# define midlatitude domain outside of MEPS
+verif_dataset_midlat:
+  dataset:
+    dataset: ${hardware.paths.data}/${hardware.files.dataset_global}
+    area: [70, -300, 40, -20]
+
+verif_dataset_nordic:
+  dataset:
+    dataset: ${hardware.paths.data}/${hardware.files.dataset_lam}
+    trim_edge: 50
+    thinning: 10
+
+routing:
+  - decoder_index: 0
+    domain_index: 0
+    outputs:
+      - verif:
+          filename: ${verif_dir_point}/t2m/${run_name}.nc
+          variable: 2t
+          units: degC
+          elev_gradient: -0.0065
+          obs_sources:
+            - verif:
+                filename: ${verif_dir_point}/t2m/MEPS_ENS_2.5km.nc
+      - verif:
+          filename: ${verif_dir_point}/ws10m/${run_name}.nc
+          variable: ws
+          units: m/s
+          obs_sources:
+            - verif:
+                filename: ${verif_dir_point}/ws10m/MEPS_ENS_2.5km.nc
+      - verif:
+          filename: ${verif_dir_point}/mslp/${run_name}.nc
+          variable: msl
+          units: hPa
+          obs_sources:
+            - verif:
+                filename: ${verif_dir_point}/mslp/MEPS_ENS_2.5km.nc
+      - verif:
+          filename: ${verif_dir_point}/precip6h/${run_name}.nc
+          variable: tp
+          units: mm
+          obs_sources:
+            - verif:
+                filename: ${verif_dir_point}/precip6h/MEPS_ENS_2.5km.nc
+      - verif:
+          filename: ${verif_dir_nordic}/t2m/${run_name}.nc
+          variable: 2t
+          units: degC
+          elev_gradient: -0.0065
+          obs_sources:
+            - anemoidataset:
+                dataset: ${verif_dataset_nordic}
+                variable: 2t
+      - verif:
+           filename: ${verif_dir_nordic}/ws10m/${run_name}.nc
+           variable: ws
+           units: m/s
+           obs_sources:
+             - anemoidataset:
+                 dataset: ${verif_dataset_nordic}
+                 variable: ws
+      - verif:
+          filename: ${verif_dir_nordic}/mslp/${run_name}.nc
+          variable: msl
+          units: hPa
+          obs_sources:
+            - anemoidataset:
+                dataset: ${verif_dataset_nordic}
+                variable: msl
+      - verif:
+          filename: ${verif_dir_nordic}/precip6h/${run_name}.nc
+          variable: tp
+          units: mm
+          obs_sources:
+            - anemoidataset:
+                dataset: ${verif_dataset_nordic}
+                variable: tp
+  - decoder_index: 0
+    domain_index: 1
+    outputs:
+      - verif:
+          filename: ${verif_dir_midlat}/t2m/${run_name}.nc
+          variable: 2t
+          units: degC
+          elev_gradient: -0.0065
+          obs_sources:
+             - anemoidataset:
+                 dataset: ${verif_dataset_midlat}
+                 variable: 2t
+                 every_loc: 50
+      - verif:
+          filename: ${verif_dir_midlat}/ws10m/${run_name}.nc
+          variable: ws
+          units: m/s
+          obs_sources:
+             - anemoidataset:
+                 dataset: ${verif_dataset_midlat}
+                 variable: ws
+                 every_loc: 50
+      - verif:
+          filename: ${verif_dir_midlat}/mslp/${run_name}.nc
+          variable: msl
+          units: hPa
+          obs_sources:
+             - anemoidataset:
+                 dataset: ${verif_dataset_midlat}
+                 variable: msl
+                 every_loc: 50
+      - verif:
+          filename: ${verif_dir_midlat}/precip6h/${run_name}.nc
+          variable: tp
+          units: mm
+          obs_sources:
+             - anemoidataset:
+                 dataset: ${verif_dataset_midlat}
+                 variable: tp
+                 every_loc: 50
+      - verif:
+          filename: ${verif_dir_midlat}/t_850/${run_name}.nc
+          variable: t_850
+          units: K
+          obs_sources:
+             - anemoidataset:
+                 dataset: ${verif_dataset_midlat}
+                 variable: t_850
+                 every_loc: 50
+      - verif:
+          filename: ${verif_dir_midlat}/z_500/${run_name}.nc
+          variable: z_500
+          units: m^2/s^2
+          obs_sources:
+             - anemoidataset:
+                 dataset: ${verif_dataset_midlat}
+                 variable: z_500
+                 every_loc: 50
+
+selected_vars: [10u, 10v, 2d, 2t, cos_julian_day, cos_latitude, cos_local_time, cos_longitude, hcc, insolation, lcc, lsm, mcc, msl, q_100, q_1000, q_150, q_200, q_250, q_300, q_400, q_50, q_500, q_700, q_850, q_925, sin_julian_day, sin_latitude, sin_local_time, sin_longitude, skt, sp, ssrd, strd, t_100, t_1000, t_150, t_200, t_250, t_300, t_400, t_50, t_500, t_700, t_850, t_925, tcc, tcw, tp, u_100, u_1000, u_150, u_200, u_250, u_300, u_400, u_50, u_500, u_700, u_850, u_925, v_100, v_1000, v_150, v_200, v_250, v_300, v_400, v_50, v_500, v_700, v_850, v_925, w_100, w_1000, w_150, w_200, w_250, w_300, w_400, w_50, w_500, w_700, w_850, w_925, z, z_100, z_1000, z_150, z_200, z_250, z_300, z_400, z_50, z_500, z_700, z_850, z_925]

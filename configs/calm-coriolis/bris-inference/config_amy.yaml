@@ -1,0 +1,82 @@
+defaults:
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+  - _self_
+  
+# Change this
+run_name: calm-coriolis_r6
+run_hash: e4f2bd4fba734a3b8874201bf389f3df
+
+outdir: /leonardo_work/EUHPC_R06_263/bris/cases/amy
+
+start_date: 2025-09-31T00:00:00
+end_date: 2025-10-05T18:00:00
+
+checkpoints:
+  forecaster:
+    checkpoint_path: /leonardo_work/DestE_330_25/anemoi/experiments/ens/checkpoint/${run_hash}/inference-last.ckpt
+    leadtimes: 12
+    static_forcings_dataset: null
+    switch_graph: null
+
+timestep: 6h
+frequency: 6h
+workdir: .
+
+dataset:
+  cutout:
+    - dataset: ${hardware.paths.data}/${hardware.files.dataset_lam}
+      reorder: sort
+      trim_edge: 50
+    - dataset: ${hardware.paths.data}/${hardware.files.dataset_global}
+      select: ${selected_vars}
+      reorder: sort
+  min_distance_km: 0
+  adjust: all
+
+dataloader:
+  batch_size: 1
+  prefetch_factor: 2
+  num_workers: 1
+  pin_memory: True
+
+  read_group_size: 1 #Do not change this, not implemented properly
+
+  datamodule:
+    _target_: bris.data.dataset.NativeGridDataset
+    _convert_: all
+
+hardware:
+  paths:
+    data: /leonardo_work/EUHPC_R06_263/bris/datasets
+  files:
+    dataset_global: IFS/aifs-od-an-oper-0001-mars-n320-2025-2026-04-08-6h-v2.zarr
+    dataset_lam: MEPS/meps-2p5km-202501-202604-6h-v7.zarr
+
+  num_gpus_per_node: ${oc.decode:${oc.env:SLURM_GPUS_PER_NODE}}
+  num_gpus_per_model: 4
+  num_members: 30
+  num_nodes: ${oc.decode:${oc.env:SLURM_NNODES}}
+
+model:
+  _target_: bris.model.brispredictor.BrisPredictor
+  _convert_: all
+  #fcstep_const: True
+
+routing:
+  - decoder_index: 0
+    domain_index: 0
+    outputs:
+      - netcdf:
+          filename_pattern: ${outdir}/nordic_${run_name}_%Y-%m-%dT%HZ.nc
+          variables: [2t, msl, tp, lcc, mcc, hcc, tcc] 
+          extra_variables: [ws]
+          domain_name: "meps"
+  - decoder_index: 0
+    domain_index: 1
+    outputs:
+      - netcdf:
+          filename_pattern: ${outdir}/global_${run_name}_%Y-%m-%dT%HZ.nc
+          variables: [2t, msl, tp] #, lcc, mcc, hcc, tcc]
+          extra_variables: [ws]
+          interp_res: 0.25
