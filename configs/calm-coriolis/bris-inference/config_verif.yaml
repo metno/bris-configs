@@ -63,7 +63,7 @@ hardware:
 model:
   _target_: bris.model.brispredictor.BrisPredictor
   _convert_: all
-  fcstep_const: True
+  #fcstep_const: True
 
 # define midlatitude domain outside of MEPS
 verif_dataset_midlat:
