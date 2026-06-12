@@ -1,0 +1,234 @@
+defaults:
+- data: zarr
+- dataloader: native_grid
+- diagnostics: evaluation_ens
+- system: slurm
+#- datamodule: ens
+- graph: stretched_grid
+- model: graphtransformer_ens
+- task: forecaster
+- training: ensemble
+- _self_
+
+config_validation: True
+
+hydra:
+  output_subdir: null  
+  run:  
+    dir: .
+  searchpath:
+    - pkg://anemoi.training.config
+
+data:
+  frequency: 6h
+  resolution: N320
+  datasets:
+    data:
+      forcing:
+        - lsm
+        - cos_julian_day
+        - cos_local_time
+        - cos_latitude
+        - cos_longitude
+        - sin_julian_day
+        - sin_local_time
+        - sin_latitude
+        - sin_longitude
+        - insolation
+        - z
+      diagnostic:
+        - tp
+        - ssrd
+        - strd
+      processors:
+        normalizer:
+          config:
+            none:
+              - lsm
+              - cos_julian_day
+              - cos_local_time
+              - cos_latitude
+              - cos_longitude
+              - sin_julian_day
+              - sin_local_time
+              - sin_latitude
+              - sin_longitude
+              - insolation
+              - lcc
+              - mcc
+              - hcc
+              - tcc
+            max:
+              - z
+
+system:
+  input:
+    graph: /leonardo_work/EUHPC_R06_263/bris/datasets/carra2_2p5k_7p10.pt
+    dataset: /leonardo_work/EUHPC_R06_263/bris/datasets/CARRA2/carra2_2.5km_20210101-20231231_6h.zarr
+    forcing_dataset: /leonardo_work/DestE_340_25/ai-ml/datasets/aifs-od-an-oper-0001-mars-n320-2016-2025-6h-v1-for-single-v2.zarr
+    loss_matrices_path: null
+    truncation: null
+    truncation_inv: null
+    warm_start: null
+  output:
+    root: /leonardo_work/EUHPC_R06_263/bris/experiments/
+  hardware:
+    num_gpus_per_ensemble: 4
+    num_gpus_per_model: 2
+
+model:
+  num_channels: 1024
+  keep_batch_sharded: True
+  bounding:
+    - _target_: anemoi.models.layers.bounding.ReluBounding #[0, infinity)
+      variables:
+        - tp
+    - _target_: anemoi.models.layers.bounding.HardtanhBounding #[min_val, max_val]
+      variables:
+        - tcc
+        - hcc
+        - mcc
+        - lcc
+      min_val: 0
+      max_val: 1
+  trainable_parameters:
+    data: 0
+    hidden: 0
+    data2hidden: 0
+    hidden2data: 0
+    hidden2hidden: 0
+  encoder:
+    num_chunks: 2
+  processor:
+    num_chunks: 4
+  decoder:
+    num_chunks: 2
+
+dataloader:
+  dataset:
+    cutout:
+      - dataset: ${system.input.dataset}
+        rescale:
+          tp:
+            scale: 0.001
+            offset: 0.0
+        reorder: sort
+      - dataset: ${system.input.forcing_dataset}
+        select: [10u, 10v, 2d, 2t, cos_julian_day, cos_latitude, cos_local_time, cos_longitude, hcc, insolation, lcc, lsm, mcc, msl, q_100, q_1000, q_150, q_200, q_250, q_300, q_400, q_50, q_500, q_700, q_850, q_925, sin_julian_day, sin_latitude, sin_local_time, sin_longitude, skt, sp, ssrd, strd, t_100, t_1000, t_150, t_200, t_250, t_300, t_400, t_50, t_500, t_700, t_850, t_925, tcc, tcw, tp, u_100, u_1000, u_150, u_200, u_250, u_300, u_400, u_50, u_500, u_700, u_850, u_925, v_100, v_1000, v_150, v_200, v_250, v_300, v_400, v_50, v_500, v_700, v_850, v_925, w_100, w_1000, w_150, w_200, w_250, w_300, w_400, w_50, w_500, w_700, w_850, w_925, z, z_100, z_1000, z_150, z_200, z_250, z_300, z_400, z_50, z_500, z_700, z_850, z_925]
+    min_distance_km: 0
+    adjust: all
+
+  num_workers:
+    training: 4
+    validation: 4
+    test: 4
+  batch_size:
+    training: 1
+    validation: 1
+    test: 1
+  limit_batches:
+    training: null
+    validation: null
+  training:
+    datasets:
+      data:
+        dataset_config:
+          dataset: ${dataloader.dataset}
+          frequency: ${data.frequency}
+          drop: []
+        start: 2021-01-01
+        end: 2022-12-31
+        trajectory: null
+  validation:
+    datasets:
+      data:
+        dataset_config:
+          dataset: ${dataloader.dataset}
+          frequency: ${data.frequency}
+          drop: []
+        start: 2023-01-01
+        end: 2023-12-31
+        trajectory: null
+  test:
+    datasets:
+      data:
+        dataset_config:
+          dataset: ${dataloader.dataset}
+          frequency: ${data.frequency}
+          drop: []
+        start: 2023-01-01
+        end: 2023-12-31
+        trajectory: null
+
+graph:
+  overwrite: False #True
+  nodes:
+    hidden:
+      node_builder:
+        lam_resolution: 10
+        global_resolution: 7
+        margin_radius_km: 11
+
+task:
+  rollout:
+    start: 1
+    epoch_increment: 0
+    maximum: 1
+  validation_rollout: null
+
+
+training:
+  fork_run_id: null
+  run_id: null
+  ensemble_size_per_device: 1
+  max_epochs: 1
+  max_steps: 1000
+  load_weights_only: False
+  transfer_learning: False
+  optimization:
+    lr: 1.25e-5
+    lr_scheduler:
+      lr_min: 8.0e-6
+      warmup_t: 100
+  training_loss:
+    datasets:
+      data:
+        _target_: anemoi.training.losses.MultiscaleLossWrapper
+        multiscale_config: null
+        weights: [1.0]
+        per_scale_loss:
+          _target_: anemoi.training.losses.CRPS
+          alpha: 0.95
+          ignore_nans: False
+          no_autocast: True
+          scalers: ['pressure_level', 'general_variable', 'nan_mask_weights', 'node_weights', 'time_steps']
+  scalers:
+    datasets:
+      data: # user-defined key in data
+        node_weights:
+          _target_: anemoi.training.losses.scalers.ReweightedGraphNodeAttributeScaler
+          nodes_attribute_name: area_weight
+          scaling_mask_attribute_name: cutout_mask
+          weight_frac_of_total: 0.23
+          norm: unit-sum
+diagnostics:
+  plot:
+    callbacks: []
+  log:
+    interval: 100
+    mlflow:
+      enabled: True
+      offline: True
+      authentication: False
+      experiment_name: metno
+      tracking_uri: https://mlflow.ecmwf.int
+      run_name: fft
+  checkpoint:
+    every_n_minutes:
+      save_frequency: 30
+      num_models_saved: 1
+    every_n_epochs:
+      save_frequency: 1
+      num_models_saved: 1
+    every_n_train_steps:
+      save_frequency: 100
