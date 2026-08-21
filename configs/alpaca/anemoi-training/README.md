@@ -3,7 +3,7 @@
 This folder contains the files needed to train O96 test models for Bris3.0
 
 Contents:
-- `base_o96_pretrain.yaml` — hydra base config (fill in the `TODO`s: graph path, output root,
+- `basic-alpaca.yaml` — hydra base config (fill in the `TODO`s: graph path, output root,
   run id, mlflow run name). Speed levers included and verified on Leonardo boost nodes:
   block-level `model.compile` (+45%), `num_chunks: 1` (+6.5%), bf16 gradient-compression DDP
   hook (+30% at 8 nodes), `drop_last: True`, geometry 2 members x 1 GPU per group,

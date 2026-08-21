@@ -3,7 +3,6 @@
 
 Why: anemoi-training builds the graph on EVERY rank with no coordination, and the KNN edge builder's
 pyg/CUDA path hangs on ranks whose local device is not cuda:0 (first build of the KNN-12 graph,
-smoke 53311524: 1/4 ranks finished). With the file present, every rank simply loads it.
 Replicates AnemoiTrainer.graph_data's config expansion (train.py) and calls GraphCreator.
 
 Usage:  venvs/anemoi-torch28-202608/bin/python jobs/build_graph.py --config e0_knn [--out <path>] [--overwrite]
