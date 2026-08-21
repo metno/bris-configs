@@ -1,0 +1,16 @@
+# E0-small — planning_decisions_r1 r2 item J: identical to E0 except model.num_channels: 256 — the
+# capacity dose-response companion for the memorisation gap g (pairs with E0-short's revisit dose-response).
+# ~order-of-magnitude cheaper than E0; queue AFTER the paper-1 core runs. A 512-channel middle point only
+# if the 256-vs-1024 contrast warrants it. Approved exceptions to the "loss block + run name only" rule:
+#   * model.num_channels: 256
+defaults:
+  - base-alpaca
+  - _self_
+
+model:
+  num_channels: 256
+
+diagnostics:
+  log:
+    mlflow:
+      run_name: small-alpaca

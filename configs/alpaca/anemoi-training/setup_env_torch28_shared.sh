@@ -4,7 +4,9 @@
 # torch 2.8.0+cu126 + pyg-lib, enabling block-level torch.compile
 # (+45% samples/s/node at o96/1024c vs uncompiled).
 #
-# RUN ON A LOGIN NODE. Fill in the TODOs first.
+# RUN ON A LOGIN NODE. Set BASE (the only TODO): the script creates the folder layout
+# (src/ venvs/ configs/ graphs/ logs/), clones anemoi-core at the pinned commit, and builds the venv.
+# Afterwards: copy this folder's configs into ${BASE}/configs and the jobscript into ${BASE}/.
 #
 # Key pins and why:
 #   torch==2.8.0+cu126   - first torch where anemoi's block compile works (2.6 crashes
@@ -23,12 +25,28 @@
 # ============================================================================
 set -euo pipefail
 
-BASE=TODO                 # your project area, e.g. /leonardo_scratch/fast/<ACCOUNT>/$USER/<project>
+BASE=TODO                 # the ONLY thing to set: your project root, e.g. /leonardo_scratch/fast/<ACCOUNT>/$USER/<project>
+ANEMOI_COMMIT=c3c7a893f   # anemoi-core release training-0.16.0 / models-0.18.0 / graphs-0.9.6
 VENV=${BASE}/venvs/anemoi-torch28
-SRC=${BASE}/src/anemoi-core   # clone of anemoi-core, checked out at training-0.16.0 (c3c7a893f):
-                              #   git clone https://github.com/ecmwf/anemoi-core "$SRC"
-                              #   git -C "$SRC" checkout c3c7a893f
+SRC=${BASE}/src/anemoi-core
 C=$(mktemp); echo "torch==2.8.0" > "$C"
+
+# --- folder layout + pinned anemoi-core clone --------------------------------------------------
+mkdir -p "${BASE}"/{src,venvs,configs,graphs,logs/hydra}
+if [ ! -d "${SRC}/.git" ]; then
+  git clone https://github.com/ecmwf/anemoi-core "${SRC}"
+fi
+git -C "${SRC}" fetch --tags
+git -C "${SRC}" checkout "${ANEMOI_COMMIT}"
+echo "anemoi-core at $(git -C "${SRC}" rev-parse --short HEAD)"
+# drop_last support for the dataloader (6-line local patch, upstream-PR candidate): a partial final
+# batch would force a recompilation of the compiled blocks and crash torch 2.8's AOT autograd.
+HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+if git -C "${SRC}" apply --check "${HERE}/anemoi-core-drop_last.patch" 2>/dev/null; then
+  git -C "${SRC}" apply "${HERE}/anemoi-core-drop_last.patch" && echo "applied anemoi-core-drop_last.patch"
+else
+  echo "anemoi-core-drop_last.patch already applied or not applicable — check manually"
+fi
 
 module purge
 module load python/3.11.7

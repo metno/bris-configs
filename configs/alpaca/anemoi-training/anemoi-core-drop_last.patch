@@ -1,0 +1,17 @@
+diff --git a/training/src/anemoi/training/data/datamodule.py b/training/src/anemoi/training/data/datamodule.py
+index 2068b5849..80962c8e8 100644
+--- a/training/src/anemoi/training/data/datamodule.py
++++ b/training/src/anemoi/training/data/datamodule.py
+@@ -178,6 +178,12 @@ class AnemoiDatasetsDataModule(pl.LightningDataModule):
+ 
+         extra = {}
+ 
++        # mspread local patch (2026-08-19): expose DataLoader drop_last. A partial final batch changes the
++        # batch-dim shape, which forces a torch.compile recompilation of the compiled blocks mid-run (and
++        # currently crashes torch 2.8's AOT autograd on recompile). Upstream-PR candidate.
++        if self.config.dataloader.get("drop_last", None) is not None:
++            extra["drop_last"] = bool(self.config.dataloader.drop_last)
++
+         if self.config.dataloader.get("multiprocessing_context", None) is not None:
+             import multiprocessing
+ 
