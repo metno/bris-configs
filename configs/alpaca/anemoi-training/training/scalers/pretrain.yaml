@@ -1,0 +1,39 @@
+# Loss scalers for o96 pre-training (full replacement of the packaged training/scalers group,
+# so no tendency scalers are instantiated). Names referenced by losses:
+# general_variable, pressure_level, nan_mask_weights, node_weights, time_steps.
+datasets:
+  data:
+    general_variable:
+      _target_: anemoi.training.losses.scalers.GeneralVariableLossScaler
+      weights:
+        default: 1
+        q: 0.6
+        t: 6
+        u: 0.8
+        v: 0.5
+        w: 0.001
+        z: 12
+        sp: 10
+        10u: 0.5
+        10v: 0.5
+        2d: 0.5
+        tp: 0.025
+        tcc: 0.1
+        mcc: 0.1
+        lcc: 0.1
+        hcc: 0.1
+        ssrd: 0.05
+        strd: 0.1
+    pressure_level:
+      _target_: anemoi.training.losses.scalers.ReluVariableLevelScaler
+      group: pl
+      y_intercept: 0.2
+      slope: 0.001
+    nan_mask_weights:
+      _target_: anemoi.training.losses.scalers.NaNMaskScaler
+    node_weights:
+      _target_: anemoi.training.losses.scalers.GraphNodeAttributeScaler
+      nodes_attribute_name: area_weight
+      norm: unit-sum
+    time_steps:
+      _target_: anemoi.training.losses.scalers.UniformTimeStepScaler

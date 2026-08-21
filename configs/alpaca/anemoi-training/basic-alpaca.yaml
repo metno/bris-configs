@@ -1,0 +1,327 @@
+# ============================================================================
+# base_o96_pretrain.yaml — shared o96 ensemble pre-training base (metno).
+# anemoi-core @ release training-0.16.0 (c3c7a893f), torch-2.8 env
+# (see setup_env_torch28_shared.sh in this folder).
+#
+# Run with the config PATH (not --config-dir, which has lowest priority):
+#   anemoi-training train --config-path=<this folder> --config-name=base_o96_pretrain
+#
+# Fill in every TODO before running.
+# ============================================================================
+defaults:
+  - data: zarr
+  - dataloader: native_grid
+  - diagnostics: evaluation_ens
+  - system: slurm
+  - graph: multi_scale
+  - model: graphtransformer_ens
+  - task: forecaster
+  - training: ensemble
+  - override training/scalers: pretrain
+  - _self_
+
+config_validation: False
+
+data:
+  frequency: 6h
+  datasets:
+    data:
+      forcing:
+        - cos_latitude
+        - cos_longitude
+        - sin_latitude
+        - sin_longitude
+        - cos_julian_day
+        - cos_local_time
+        - sin_julian_day
+        - sin_local_time
+        - insolation
+        - lsm
+        - z
+      diagnostic:
+        - tp
+        - ssrd
+        - strd
+      processors:
+        normalizer:
+          _target_: anemoi.models.preprocessing.normalizer.InputNormalizer
+          config:
+            default: "mean-std"
+            std:
+              - tp
+              - ssrd
+              - tcw
+              - q_50
+              - q_100
+              - q_150
+              - q_200
+              - q_250
+              - q_300
+              - q_400
+              - q_500
+              - q_700
+              - q_850
+              - q_925
+              - q_1000
+            max:
+              - z
+            none:
+              - cos_latitude
+              - cos_longitude
+              - sin_latitude
+              - sin_longitude
+              - cos_julian_day
+              - cos_local_time
+              - sin_julian_day
+              - sin_local_time
+              - insolation
+              - lsm
+              - lcc
+              - mcc
+              - hcc
+              - tcc
+
+dataloader:
+  # drop partial final batches: a batch-shape change mid-run forces recompilation of the
+  # compiled blocks, which crashes torch-2.8 AOT autograd (needs the datamodule drop_last
+  # patch of anemoi-core training-0.16.0; harmless no-op if your data divides the batch).
+  drop_last: True
+  num_workers:
+    training: 4
+    validation: 4
+    test: 4
+  batch_size:
+    training: 2
+    validation: 2
+    test: 2
+  prefetch_factor: 2
+  limit_batches:
+    training: null
+    validation: null
+    test: 20
+  dataset:
+    join:
+      - dataset: ${system.input.dataset}
+      - dataset: ${system.input.dataset_land}
+    adjust: ["start", "end"]
+    reorder: sort
+  select: ['10u', '10v', '2d', '2t', 'cos_julian_day', 'cos_latitude', 'cos_local_time', 'cos_longitude', 'hcc', 'insolation', 'lcc', 'lsm', 'mcc', 'msl', 'q_100', 'q_1000', 'q_150', 'q_200', 'q_250', 'q_300', 'q_400', 'q_50', 'q_500', 'q_700', 'q_850', 'q_925', 'sin_julian_day', 'sin_latitude', 'sin_local_time', 'sin_longitude', 'skt', 'sp', 'ssrd', 'strd', 't_100', 't_1000', 't_150', 't_200', 't_250', 't_300', 't_400', 't_50', 't_500', 't_700', 't_850', 't_925', 'tcc', 'tcw', 'tp', 'u_100', 'u_1000', 'u_150', 'u_200', 'u_250', 'u_300', 'u_400', 'u_50', 'u_500', 'u_700', 'u_850', 'u_925', 'v_100', 'v_1000', 'v_150', 'v_200', 'v_250', 'v_300', 'v_400', 'v_50', 'v_500', 'v_700', 'v_850', 'v_925', 'w_100', 'w_1000', 'w_150', 'w_200', 'w_250', 'w_300', 'w_400', 'w_50', 'w_500', 'w_700', 'w_850', 'w_925', 'z', 'z_100', 'z_1000', 'z_150', 'z_200', 'z_250', 'z_300', 'z_400', 'z_50', 'z_500', 'z_700', 'z_850', 'z_925']
+  training:
+    datasets:
+      data:
+        dataset_config:
+          dataset: ${dataloader.dataset}
+          frequency: ${data.frequency}
+          select: ${dataloader.select}
+          reorder: sort
+        start: 1979-01-01
+        end: 2021-12-31
+  validation:
+    datasets:
+      data:
+        dataset_config:
+          dataset: ${dataloader.dataset}
+          frequency: ${data.frequency}
+          select: ${dataloader.select}
+          reorder: sort
+        start: 2022-01-01
+        end: 2022-12-31
+  test:
+    datasets:
+      data:
+        dataset_config:
+          dataset: ${dataloader.dataset}
+          frequency: ${data.frequency}
+          select: ${dataloader.select}
+          reorder: sort
+        start: 2022-01-01
+        end: 2022-12-31
+
+system:
+  hardware:
+    num_gpus_per_model: 1
+    num_gpus_per_ensemble: 2
+  input:
+    dataset: /leonardo_work/AIFAC_5C0_154/weathergen/data/aifs-ea-an-oper-0001-mars-o96-1979-2023-6h-v8.zarr
+    dataset_land: /leonardo_work/AIFAC_5C0_154/weathergen/data/aifs-ea-an-oper-0001-mars-o96-1979-2023-6h-v1-land-reduced.zarr
+    graph: TODO   # e.g. <your area>/graphs/o96_tri5_knn12.pt — built on first run (graph.overwrite False)
+  output:
+    root: TODO    # your experiments output folder
+
+graph:
+  overwrite: False
+  # Graph conventions aligned with anemoi's graph/stretched_grid.yaml (eases later stretched-grid
+  # fine-tuning): encoder KNN 12 (not cutoff), edge_length norm unit-max. Processor (multi-scale on
+  # TriNodes 5) and decoder (KNN 3) as the packaged multi_scale default. Full list restated because
+  # hydra replaces lists wholesale.
+  edges:
+    - source_name: "data"
+      target_name: "hidden"
+      edge_builders:
+        - _target_: anemoi.graphs.edges.KNNEdges
+          num_nearest_neighbours: 12
+          source_mask_attr_name: null
+          target_mask_attr_name: null
+      attributes: ${graph.attributes.edges}
+    - source_name: "hidden"
+      target_name: "hidden"
+      edge_builders:
+        - _target_: anemoi.graphs.edges.MultiScaleEdges
+          x_hops: 1
+          scale_resolutions: ${graph.nodes.hidden.node_builder.resolution}
+          source_mask_attr_name: null
+          target_mask_attr_name: null
+      attributes: ${graph.attributes.edges}
+    - source_name: "hidden"
+      target_name: "data"
+      edge_builders:
+        - _target_: anemoi.graphs.edges.KNNEdges
+          num_nearest_neighbours: 3
+          source_mask_attr_name: null
+          target_mask_attr_name: null
+      attributes: ${graph.attributes.edges}
+  attributes:
+    edges:
+      edge_length:
+        _target_: anemoi.graphs.edges.attributes.EdgeLength
+        norm: unit-max
+
+model:
+  num_channels: 1024
+  keep_batch_sharded: True
+  trainable_parameters:
+    data: 0
+    hidden: 0
+    data2hidden: 0
+    hidden2data: 0
+    hidden2hidden: 0
+  processor:
+    num_chunks: 1
+  encoder:
+    num_chunks: 1
+  decoder:
+    num_chunks: 1
+  # Block-level torch.compile: +45% samples/s/node. REQUIRES the torch-2.8 env; do NOT set
+  # PYTORCH_CUDA_ALLOC_CONF=expandable_segments; do NOT add a CRPS/loss compile entry
+  # (crashes validation via CUDA-graph output reuse).
+  compile:
+    - module: anemoi.models.layers.block.GraphTransformerProcessorBlock
+    - module: anemoi.models.layers.block.GraphTransformerMapperBlock
+    - module: anemoi.models.layers.normalization.ConditionalLayerNorm
+  bounding:
+    - _target_: anemoi.models.layers.bounding.ReluBounding
+      variables:
+        - tp
+        - ssrd
+        - tcw
+        - q_50
+        - q_100
+        - q_150
+        - q_200
+        - q_250
+        - q_300
+        - q_400
+        - q_500
+        - q_700
+        - q_850
+        - q_925
+        - q_1000
+    - _target_: anemoi.models.layers.bounding.HardtanhBounding
+      variables:
+        - tcc
+      min_val: 0
+      max_val: 1
+    - _target_: anemoi.models.layers.bounding.FractionBounding
+      variables:
+        - lcc
+        - mcc
+        - hcc
+      min_val: 0
+      max_val: 1
+      total_var: tcc
+
+task:
+  multistep_input: 2
+  multistep_output: 1
+  timestep: "6H"
+  rollout:
+    start: 1
+    epoch_increment: 0
+    maximum: 1
+  validation_rollout: 1
+
+training:
+  # bf16 gradient-compression DDP hook: halves the inter-node allreduce volume (~1 GB fp32/step
+  # at 246.5M params); +30% at 8 nodes, no measurable loss-trajectory impact. Remove this block
+  # (and consider config_validation: True) if you prefer fp32 gradient reduction.
+  strategy:
+    ddp_comm_hook:
+      _target_: hydra.utils.get_method
+      path: torch.distributed.algorithms.ddp_comm_hooks.default_hooks.bf16_compress_hook
+  run_id: TODO        # null for a fresh run; an existing run id to resume it
+  fork_run_id: null
+  max_epochs: null
+  max_steps: 200000
+  ensemble_size_per_device: 1
+  optimization:
+    # LR NOTE: anemoi multiplies this by the number of DDP instances (total_gpus / gpus_per_model),
+    # NOT by batch size. 4 nodes x bs2: 16 x 1.25e-4 = 2.0e-3 effective. If you run 8 nodes x bs1
+    # (same effective batch 16), use 6.25e-5 to keep the same effective LR.
+    lr: 1.25e-4
+    lr_scheduler:
+      lr_min: 3.0e-7
+      warmup_t: 1000
+  validation_metrics:
+    datasets:
+      data:
+        fkcrps:
+          _target_: anemoi.training.losses.CRPS
+          scalers: ['node_weights', 'time_steps']
+          ignore_nans: False
+          alpha: 1.0
+  metrics:
+    datasets:
+      data:
+        - z_500
+        - z_1000
+        - t_850
+        - t_500
+        - u_850
+        - v_850
+        - q_700
+        - 2t
+        - 2d
+        - 10u
+        - 10v
+        - msl
+        - sp
+        - tp
+        - tcw
+        - tcc
+        - ssrd
+
+diagnostics:
+  plot:
+    callbacks: []
+  log:
+    interval: 100
+    mlflow:
+      enabled: True
+      offline: True          # compute nodes have no internet; sync from a login node
+      authentication: True
+      tracking_uri: https://mlflow.ecmwf.int
+      experiment_name: metno
+      run_name: TODO
+      system: True
+  # Checkpoints: step-aligned every 10k (all kept) for equal-progress comparisons across runs;
+  # every 3 epochs (all kept); rolling hourly resume checkpoint (<= 1 h lost on a walltime kill).
+  checkpoint:
+    every_n_minutes:
+      save_frequency: 60
+      num_models_saved: 1
+    every_n_epochs:
+      save_frequency: 3
+      num_models_saved: -1
+    every_n_train_steps:
+      save_frequency: 10000
+      num_models_saved: -1
