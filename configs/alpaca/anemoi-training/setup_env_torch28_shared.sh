@@ -57,6 +57,7 @@ pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cu126
 pip install -c "$C" pyg-lib torch-cluster torch-sparse torch-scatter \
     -f https://data.pyg.org/whl/torch-2.8.0+cu126.html
 pip install -c "$C" torch_geometric
+pip install -c "$C" anemoi-datasets==0.5.34
 pip install -c "$C" -e "${SRC}/training[plotting]" \
                     -e "${SRC}/models[spectral]" \
                     -e "${SRC}/graphs[tri]"
