@@ -1,7 +1,7 @@
 # A model with 4 latent grid fields that are initialized to 0 and do not contribute to the loss
 # This allows the model to use these as memory fields when doing roll out
 defaults:
-  - base-alpaca
+  - basic-alpaca
   - _self_
 
 # Repeat this whole block because we need to override normalization for latents
