@@ -1,0 +1,16 @@
+# loss function for the model
+datasets:
+  data:
+    _target_: anemoi.training.losses.CombinedLoss
+    losses:
+    - _target_: anemoi.training.losses.CRPS
+      alpha: 0.95
+      scalers: ['pressure_level', 'general_variable', 'nan_mask_weights', 'node_weights', 'time_steps']
+    - _target_: anemoi.training.losses.SpectralCRPSLoss
+      x_dim: 849
+      y_dim: 969
+      subgrid: [0, 822681]
+      alpha: 1.0
+      scalers: ['pressure_level', 'general_variable', 'nan_mask_weights', 'spectral_weights','time_steps']
+    scalers: ['*']
+    loss_weights: [1.0, 0.2]
