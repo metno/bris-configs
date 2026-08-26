@@ -17,8 +17,8 @@ Contents:
   the config's `dataloader.drop_last: True` effective; without it the key is silently ignored.
   We will probably end up with a fork with the fix (and other features) in eventually,
   so this may be removed later.
-- `setup_env_torch28_shared.sh` — full setup from ONE variable (`BASE`): folder layout, pinned
-  anemoi-core clone (training-0.16.0), venv (torch 2.8.0+cu126 + pyg-lib).
+- `setup_env_torch28_shared.sh` — full setup from ONE variable (`BASE`): folder layout, the moving
+  `alpaca` branch from the metno anemoi-core fork, venv (torch 2.8.0+cu126 + pyg-lib).
 - `train_o96.sh` — 24 h training segment (4 nodes x bs2); TODOs: job name, account, log path, ROOT;
   `CONFIG=<name>` selects the config, `RUN_ID=<id>` requeues a segment.
 

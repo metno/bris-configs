@@ -5,7 +5,7 @@
 # (+45% samples/s/node at o96/1024c vs uncompiled).
 #
 # RUN ON A LOGIN NODE. Set BASE (the only TODO): the script creates the folder layout
-# (src/ venvs/ configs/ graphs/ logs/), clones anemoi-core at the pinned commit, and builds the venv.
+# (src/ venvs/ configs/ graphs/ logs/), clones anemoi-core's alpaca branch, and builds the venv.
 # Afterwards: copy this folder's configs into ${BASE}/configs and the jobscript into ${BASE}/.
 #
 # Key pins and why:
@@ -15,7 +15,7 @@
 #                          to the newest release and breaks the PyG-wheel ABI
 #                          (libpyg.so undefined symbol).
 #   pyg-lib + cluster/sparse/scatter from the torch-2.8.0+cu126 wheel index.
-#   anemoi-core          - editable checkout pinned to release training-0.16.0 (c3c7a893f).
+#   anemoi-core          - editable checkout of the metno fork's moving alpaca branch.
 #
 # Usage notes for runs on this env:
 #   * model.compile: transformer blocks + ConditionalLayerNorm only — NEVER add a
@@ -25,24 +25,27 @@
 # ============================================================================
 set -euo pipefail
 
-BASE=TODO       # the ONLY thing to set: your project root, e.g. /leonardo_scratch/fast/<ACCOUNT>/$USER/<project>
-ANEMOI_COMMIT=c3c7a893f   # anemoi-core release training-0.16.0 / models-0.18.0 / graphs-0.9.6
+BASE=TODO     # the ONLY thing to set: your project root, e.g. /leonardo_scratch/fast/<ACCOUNT>/$USER/<project>
 VENV=${BASE}/venvs/anemoi-torch28
 SRC=${BASE}/src/anemoi-core
 SRC_INFER=${BASE}/src/bris-inference
 C=$(mktemp); echo "torch==2.8.0" > "$C"
 
-# --- folder layout + pinned anemoi-core clone --------------------------------------------------
+# --- folder layout + anemoi-core fork clone ----------------------------------------------------
 mkdir -p "${BASE}"/{src,venvs,configs,graphs,logs/hydra}
 if [ ! -d "${SRC}/.git" ]; then
-  git clone https://github.com/ecmwf/anemoi-core "${SRC}"
+  git clone https://github.com/metno/anemoi-core "${SRC}"
 fi
 if [ ! -d "${SRC_INFER}/.git" ]; then
   git clone https://github.com/metno/bris-inference "${SRC_INFER}"
 fi
-git -C "${SRC}" fetch --tags
-git -C "${SRC}" checkout "${ANEMOI_COMMIT}"
-echo "anemoi-core at $(git -C "${SRC}" rev-parse --short HEAD)"
+git -C "${SRC}" checkout alpaca
+# The fork publishes no package tags, so give setuptools-scm the release versions
+# on which alpaca is based. Otherwise it generates 0.0.0.postN versions that fail
+# the packages' internal dependency constraints.
+export SETUPTOOLS_SCM_PRETEND_VERSION_FOR_ANEMOI_TRAINING=0.16.0
+export SETUPTOOLS_SCM_PRETEND_VERSION_FOR_ANEMOI_MODELS=0.18.0
+export SETUPTOOLS_SCM_PRETEND_VERSION_FOR_ANEMOI_GRAPHS=0.9.6
 # drop_last support for the dataloader (6-line local patch, upstream-PR candidate): a partial final
 # batch would force a recompilation of the compiled blocks and crash torch 2.8's AOT autograd.
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
