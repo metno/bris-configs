@@ -1,0 +1,84 @@
+# A model with 4 latent grid fields that are initialized to 0 and do not contribute to the loss
+# This allows the model to use these as memory fields when doing roll out
+defaults:
+  - basic-alpaca
+  - _self_
+
+data:
+  datasets:
+    data:
+      processors:
+        normalizer:
+          config:
+            none:
+              - cos_latitude
+              - cos_longitude
+              - sin_latitude
+              - sin_longitude
+              - cos_julian_day
+              - cos_local_time
+              - sin_julian_day
+              - sin_local_time
+              - insolation
+              - lsm
+              - lcc
+              - mcc
+              - hcc
+              - tcc
+              - ci
+
+        # This field has NaNs in the input
+        const_imputer:
+          _target_: anemoi.models.preprocessing.imputer.ConstantImputer
+          config:
+            default: "none"
+            0: [ci]
+
+system:
+  input:
+    dataset_sea_ice: /leonardo_work/EUHPC_R06_263/bris/datasets/ERA5/aifs-ea-an-oper-0001-mars-o96-1979-202605-6h-v1-seaice.zarr
+
+dataloader:
+  dataset:
+    join:
+      - dataset: ${system.input.dataset}
+      - dataset: ${system.input.dataset_land}
+      - dataset: ${system.input.dataset_sea_ice}
+    adjust: ["start", "end"]
+    reorder: sort
+  select: ['10u', '10v', '2d', '2t', 'ci', 'cos_julian_day', 'cos_latitude', 'cos_local_time', 'cos_longitude', 'hcc', 'insolation', 'lcc', 'lsm', 'mcc', 'msl', 'q_100', 'q_1000', 'q_150', 'q_200', 'q_250', 'q_300', 'q_400', 'q_50', 'q_500', 'q_700', 'q_850', 'q_925', 'sin_julian_day', 'sin_latitude', 'sin_local_time', 'sin_longitude', 'skt', 'sp', 'ssrd', 'strd', 't_100', 't_1000', 't_150', 't_200', 't_250', 't_300', 't_400', 't_50', 't_500', 't_700', 't_850', 't_925', 'tcc', 'tcw', 'tp', 'u_100', 'u_1000', 'u_150', 'u_200', 'u_250', 'u_300', 'u_400', 'u_50', 'u_500', 'u_700', 'u_850', 'u_925', 'v_100', 'v_1000', 'v_150', 'v_200', 'v_250', 'v_300', 'v_400', 'v_50', 'v_500', 'v_700', 'v_850', 'v_925', 'w_100', 'w_1000', 'w_150', 'w_200', 'w_250', 'w_300', 'w_400', 'w_50', 'w_500', 'w_700', 'w_850', 'w_925', 'z', 'z_100', 'z_1000', 'z_150', 'z_200', 'z_250', 'z_300', 'z_400', 'z_50', 'z_500', 'z_700', 'z_850', 'z_925']
+
+# Set sea-ice weight
+training:
+  scalars:
+    datasets:
+      data:
+        general_variable:
+          weights:
+            default: 1
+            q: 0.6 #1
+            t: 6   #1
+            u: 0.8 #0.5
+            v: 0.5 #0.33
+            w: 0.001
+            z: 12  #1
+            sp: 10
+            10u: 0.1
+            10v: 0.1
+            2d: 0.5
+            tp: 0.025
+            cp: 0.0025
+            ci: 500
+
+model:
+  bounding:
+    - _target_: anemoi.models.layers.bounding.LeakyHardtanhBounding
+      variables:
+        - ci
+      min_val: 0
+      max_val: 1
+
+diagnostics:
+  log:
+    mlflow:
+      run_name: icy-alpaca_r1
