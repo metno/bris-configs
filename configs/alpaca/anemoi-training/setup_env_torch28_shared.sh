@@ -25,16 +25,20 @@
 # ============================================================================
 set -euo pipefail
 
-BASE=TODO                 # the ONLY thing to set: your project root, e.g. /leonardo_scratch/fast/<ACCOUNT>/$USER/<project>
+BASE=TODO       # the ONLY thing to set: your project root, e.g. /leonardo_scratch/fast/<ACCOUNT>/$USER/<project>
 ANEMOI_COMMIT=c3c7a893f   # anemoi-core release training-0.16.0 / models-0.18.0 / graphs-0.9.6
 VENV=${BASE}/venvs/anemoi-torch28
 SRC=${BASE}/src/anemoi-core
+SRC_INFER=${BASE}/src/bris-inference
 C=$(mktemp); echo "torch==2.8.0" > "$C"
 
 # --- folder layout + pinned anemoi-core clone --------------------------------------------------
 mkdir -p "${BASE}"/{src,venvs,configs,graphs,logs/hydra}
 if [ ! -d "${SRC}/.git" ]; then
   git clone https://github.com/ecmwf/anemoi-core "${SRC}"
+fi
+if [ ! -d "${SRC_INFER}/.git" ]; then
+  git clone https://github.com/metno/bris-inference "${SRC_INFER}"
 fi
 git -C "${SRC}" fetch --tags
 git -C "${SRC}" checkout "${ANEMOI_COMMIT}"
@@ -61,6 +65,8 @@ pip install -c "$C" anemoi-datasets==0.5.34
 pip install -c "$C" -e "${SRC}/training[plotting]" \
                     -e "${SRC}/models[spectral]" \
                     -e "${SRC}/graphs[tri]"
+pip install -c "$C" gridpp==0.8.0.dev3
+pip install -c "$C" -e "${SRC_INFER}" --no-deps
 pip freeze > "${VENV}/requirements-torch28.lock.$(date +%Y%m%d)"
 
 python - << 'PY'
