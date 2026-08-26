@@ -4,7 +4,7 @@
 # if the 256-vs-1024 contrast warrants it. Approved exceptions to the "loss block + run name only" rule:
 #   * model.num_channels: 256
 defaults:
-  - base-alpaca
+  - basic-alpaca
   - _self_
 
 model:
