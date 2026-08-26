@@ -10,27 +10,7 @@ data:
     data:
       processors:
         normalizer:
-          _target_: anemoi.models.preprocessing.normalizer.InputNormalizer
           config:
-            default: "mean-std"
-            std:
-              - tp
-              - ssrd
-              - tcw
-              - q_50
-              - q_100
-              - q_150
-              - q_200
-              - q_250
-              - q_300
-              - q_400
-              - q_500
-              - q_700
-              - q_850
-              - q_925
-              - q_1000
-            max:
-              - z
             none:
               - cos_latitude
               - cos_longitude
@@ -88,7 +68,6 @@ training:
     datasets:
       data:
         general_variable:
-          _target_: anemoi.training.losses.scalers.GeneralVariableLossScaler
           weights:
             default: 1
             q: 0.6 #1
