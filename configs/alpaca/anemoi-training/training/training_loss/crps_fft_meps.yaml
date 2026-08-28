@@ -13,4 +13,4 @@ datasets:
       alpha: 1.0
       scalers: ['pressure_level', 'general_variable', 'nan_mask_weights', 'spectral_weights','time_steps']
     scalers: ['*']
-    loss_weights: [1.0, 0.2]
+    loss_weights: [1.0, 0.002]
