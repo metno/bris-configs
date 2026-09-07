@@ -1,0 +1,103 @@
+start_date: 2023-01-01T00:00:00
+end_date: 2023-12-31T18:00:00
+
+fname: YOUR_NAME.nc #TODO: FILL IN
+
+checkpoints:
+  forecaster:
+    checkpoint_path: YOUR_CKPT_PATH #TODO: FILL IN
+    leadtimes: 20
+
+frequency: 6h
+
+datasets:
+  data:
+    join:
+      - dataset: /leonardo_work/AIFAC_5C0_154/weathergen/data/aifs-ea-an-oper-0001-mars-o96-1979-2023-6h-v8.zarr
+      - dataset: /leonardo_work/AIFAC_5C0_154/weathergen/data/aifs-ea-an-oper-0001-mars-o96-1979-2023-6h-v1-land-reduced.zarr
+    adjust: ["start", "end"]
+    reorder: sort
+
+workdir: YOUR_WORKDIR_PATH #TODO: FILL IN
+
+dataloader:
+  datamodule:
+    _target_: bris.data.dataset.NativeGridDataset
+    _convert_: all
+    init_stride: 3
+
+hardware:
+  num_gpus_per_node: ${oc.decode:${oc.env:SLURM_GPUS_PER_NODE}}
+  num_nodes: ${oc.decode:${oc.env:SLURM_NNODES}}
+  num_gpus_per_model: 1
+  num_members: 16
+
+release_cache: False
+
+model:
+  _target_: bris.model.BrisPredictor
+  _convert_: all
+  fcstep_const: false #SET TO TRUE FOR NON-ROLLOUT TRAINED CHECKPOINTS, TODO: FILL IN
+
+obs_dataset: &obs_dataset
+  dataset: /leonardo_work/AIFAC_5C0_154/weathergen/data/aifs-ea-an-oper-0001-mars-o96-1979-2023-6h-v8.zarr
+
+routing:
+  - decoder_name: "data"
+    domain_index: 0
+    outputs:
+      - verif:
+          filename: /leonardo_work/EUHPC_R06_263/bris/verification/global_o96_thin38/6h/2023/mslp/${fname}
+          variable: msl
+          units: hPa
+          obs_sources:
+            - anemoidataset:
+                every_loc: 38
+                dataset: *obs_dataset
+                variable: msl
+      - verif:
+          filename: /leonardo_work/EUHPC_R06_263/bris/verification/global_o96_thin38/6h/2023/precip6h/${fname}
+          variable: tp
+          units: mm
+          obs_sources:
+            - anemoidataset:
+                every_loc: 38
+                dataset: *obs_dataset
+                variable: tp
+      - verif:
+          filename: /leonardo_work/EUHPC_R06_263/bris/verification/global_o96_thin38/6h/2023/t2m/${fname}
+          variable: 2t
+          units: degC
+          elev_gradient: -0.0065
+          obs_sources:
+            - anemoidataset:
+                every_loc: 38
+                dataset: *obs_dataset
+                variable: 2t
+      - verif:
+          filename: /leonardo_work/EUHPC_R06_263/bris/verification/global_o96_thin38/6h/2023/t_850/${fname}
+          variable: t_850
+          units: K
+          obs_sources:
+            - anemoidataset:
+                every_loc: 38
+                dataset: *obs_dataset
+                variable: t_850
+      - verif:
+          filename: /leonardo_work/EUHPC_R06_263/bris/verification/global_o96_thin38/6h/2023/ws10m/${fname}
+          variable: ws
+          units: m/s
+          obs_sources:
+            - anemoidataset:
+                every_loc: 38
+                dataset: *obs_dataset
+                variable: ws
+      - verif:
+          filename: /leonardo_work/EUHPC_R06_263/bris/verification/global_o96_thin38/6h/2023/z_500/${fname}
+          variable: z_500
+          units: m^2/s^2
+          obs_sources:
+            - anemoidataset:
+                every_loc: 38
+                dataset: *obs_dataset
+                variable: z_500
