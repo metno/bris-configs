@@ -13,4 +13,4 @@ datasets:
       alpha: 1.0
       scalers: ['pressure_level', 'general_variable', 'nan_mask_weights', 'spectral_weights','time_steps']
     scalers: ['*']
-    loss_weights: [1.0, 0.002]
+    loss_weights: [87.0, 0.2]   # CRPS x 87 (= sum over the 87 output variables instead of the mean), FFT x 0.2; the weights of lonely-lama run 06bc7b5e
