@@ -1,0 +1,61 @@
+# ============================================================================
+# lonely-lama_r24.yaml — gradual rollout fine-tuning of lonely-lama (the rollout-1 transfer run with the corrected
+# loss weights [87, 0.2]): 2 epochs at rollout 2, 1 epoch at rollout 3, 1 epoch at rollout 4.
+#
+# Fill in every TODO before running (the lonely-lama r1 run id and the mlflow run name).
+#
+#   Schedule    : task.rollout.epochs_per_window [2, 1] with start 2 and maximum 4 (local anemoi-core option, see
+#                 RolloutConfig in tasks/forecaster.py): the window is raised at the end of epochs 1 and 2, so
+#                 epochs 0-1 run at rollout 2, epoch 2 at rollout 3 and epoch 3 at rollout 4; max_epochs 4 ends the run.
+#                 anemoi's epoch_increment cannot express this (it raises the window at the end of epoch 0).
+#                 The rollout state is in the checkpoint, so a requeue continues the schedule.
+#   Steps       : ~384 steps per epoch (16 nodes, 2 GPUs per model, 2 members per group, batch 1 -> 16 samples
+#                 per step over 6204 training samples), ~1536 steps in total; max_steps 1800 is only a safety cap,
+#                 the cosine decay (t_initial 1536) ends with epoch 3. ~1.4 h + 1 h + 1.4 h at 0.15 / 0.10 /
+#                 0.075 it/s -> ~4 h.
+#   Settings    : as the earlier r2 config (lonely-lama_r2.yaml): fork of the r1 model (weights only),
+#                 lr 2e-6, 100 warmup steps, validation at rollout 1; loss weights [87, 0.2] pinned (the repo
+#                 default in training_loss/crps_fft_meps.yaml is still [1.0, 0.002]).
+#   Checkpoints : every epoch, all kept (one per rollout stage), plus the hourly resume checkpoint.
+#
+#   sbatch train_lonely-lama_r24.sh
+#   RUN_ID=<run id> sbatch --dependency=afterany:<jobid> train_lonely-lama_r24.sh   # requeue if cut
+# ============================================================================
+defaults:
+  - lonely-lama
+  - _self_
+
+task:
+  rollout:
+    start: 2
+    epoch_increment: 0
+    epochs_per_window: [2, 1]   # 2 epochs at rollout 2, 1 at rollout 3, then rollout 4
+    maximum: 4
+  validation_rollout: 1
+
+training:
+  run_id: null
+  fork_run_id: TODO           # the lonely-lama r1 run (trained with loss weights [87, 0.2])
+  load_weights_only: True
+  transfer_learning: True
+  training_loss:
+    datasets:
+      data:
+        loss_weights: [87.0, 0.2]
+  max_epochs: 4
+  max_steps: 1800             # safety cap only; 4 epochs ~ 1536 steps
+  optimization:
+    lr: 2e-6
+    lr_scheduler:
+      lr_min: 3.0e-7
+      warmup_t: 100
+      t_initial: 1536
+
+diagnostics:
+  log:
+    mlflow:
+      run_name: TODO
+  checkpoint:
+    every_n_epochs:
+      save_frequency: 1
+      num_models_saved: -1
