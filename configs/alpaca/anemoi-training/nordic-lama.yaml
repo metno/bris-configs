@@ -1,0 +1,471 @@
+# ============================================================================
+# nordic-lama.yaml — stretched-grid ensemble model trained FROM SCRATCH on the CARRA2 Nordic 2.5 km reanalysis
+# (1986-2015) with ERA5 n320 as the global boundary. Standalone: only packaged anemoi-core groups and the local
+# training/ group of this folder are used (no lonely-lama / arctic-lama defaults). Recipe = arctic-lama
+# (dataset, graph, FFT loss) + the o96 alpaca pretraining schedule (200k steps at rollout 1, effective lr 1e-3).
+#
+#   LAM data    : carra2-nordic-{1986-1995,1996-2005,2006-2015}-6h-v1.zarr concatenated (one contiguous 6 h series
+#                 1986-01-01 12 UTC .. 2015-12-31 18 UTC, 43 826 dates, 115 variables, 1 619 121 points on the
+#                 2.5 km polar-stereographic grid cropped to 49-76 N; same grid as carra2-2.5km-20230101-20241231).
+#   Global data : ERA5 n320 1979-2023 (v8, 101 vars) joined with its land companion (30 vars: cloud fractions,
+#                 radiation, snow, soil); the only global dataset on Leonardo that covers 1986-2015. The n320 grid
+#                 is identical to the operational n320 used by lonely-lama/arctic-lama.
+#   Variables   : the 87 lonely-lama outputs + snow depth water equivalent `sd` (88 outputs) + 11 forcings + 8 static
+#                 physiography forcings. Snow unit fix: CARRA2 stores sd in kg m-2 (= mm w.e.), ERA5 in m w.e. -> the
+#                 LAM sd is rescaled by 0.001 at open time (anemoi-datasets `rescale`, statistics rescaled too).
+#                 Loss weight 500 for sd (and sde): the snowy-alpaca snow scale (checkpoint metadata of josteinbl's
+#                 o96 r4 daead4d8 and SG aa897ef3 runs).
+#   Snow depth  : `sde` (snow depth, m; in CARRA2 and in the incoming ERA5 n320 snow-depth dataset, cf. josteinbl's
+#                 snowy-alpaca-SG and aifs-ea-...-o96-1979-2023-6h-v1-land-reduced_snow_depth.zarr). PLACEHOLDER: the
+#                 global dataset is not there yet, so every sde line is commented and tagged "+sde". To enable: set
+#                 system.input.dataset_global_snow, uncomment the join entry and the "+sde" lines (select, normalizer,
+#                 imputer, bounding, metrics), set loss_weights to [89, 0.2] (89 outputs).
+#   Physiography: 8 constant surfex fields (forest, glacier, lake, nature, sea, urban, sdor_100, treeheight) as
+#                 forcings, as urban-alpaca: bris/datasets/physiography-carra2-1979-2027-1yr-surface-fractions_v2 on
+#                 the LAM and physiography-n320-...-v2 on the global grid (yearly dates expanded with
+#                 interpolate_frequency 6h, exact for constant fields). The n320 store has no resolution attribute,
+#                 which anemoi-datasets refuses to join with N320 -> hhaugen/alpaca/datasets/...-v2-resN320.zarr is a
+#                 copy with resolution=N320 (see its history attribute). Both grids verified identical to the data.
+#   w           : vertical velocity is DIAGNOSTIC (output only, not fed back as input) with loss weight 0.02 (the
+#                 rising-lama w0.02 weight, rising-alpaca pre-trained with 0.2); as a diagnostic its errors cannot
+#                 feed back into the prognostic state (mslp, tp).
+#   Periods     : training 1986-01-01 .. 2014-12-31 (29 y, ~42 360 samples, ~2650 steps/epoch at 16 nodes),
+#                 validation = test 2015-01-01 .. 2015-12-31 (50 validation batches).
+#   Snow NaNs   : sd/sde/snowc are NaN on 55 % of the LAM points = all sea points (static mask, every NaN point has
+#                 lsm < 0.5; the old 2023-24 store had no NaNs). ConstantImputer fills sd with 0 (ERA5 has 0 snow over
+#                 sea, so the imputed target is physically right); the CRPS loss additionally masks those points
+#                 (nan_mask_weights), the spectral loss uses the imputed field (grid scalers are not allowed there).
+#   Statistics  : anemoi takes the normalisation statistics of a concat from its FIRST part (1986-1995) and of a
+#                 cutout from the LAM part, i.e. normalisation uses CARRA2 1986-1995 statistics (sd rescaled).
+#   FFT loss    : SpectralCRPSLoss (fft2d) on the largest complete 2.5 km rectangle of the cropped CARRA2 grid
+#                 (RegularGridIndices node attribute, 1210 x 751 = 908 710 points, 56 % of the LAM), as arctic-lama.
+#                 Loss weights [88, 0.2] (CRPS summed over the 88 outputs instead of averaged, FFT x 0.2; lonely-lama
+#                 used [87, 0.2] for 87 outputs; 89 once sde is in).
+#   Model       : GraphTransformer ensemble, 1024 channels, hidden 7/10, 2 GPUs per model, 2 members per group,
+#                 chunking 8/2/2 (memory, as arctic-lama), compiled blocks (torch-2.8 env).
+#   Schedule    : from scratch (no fork, no warm start), 200 000 steps at rollout 1 (~75 epochs), base lr 6.25e-5 =
+#                 effective 1.0e-3 on 16 nodes (x num_nodes*gpus_per_node/num_gpus_per_ensemble = x16), the effective
+#                 lr of the o96 alpaca pretrainings (1.25e-4 x 16/2 on 4 nodes x bs 2; same 16 samples per step),
+#                 1000 warm-up steps, cosine to 3e-7 at 200k (t_initial = max_steps). arctic-lama ran 490 steps/h on
+#                 16 nodes -> ~410 h = ~17 x 24 h segments, ~26 000 GPU h (requeue with RUN_ID; no warm_start, so
+#                 RUN_ID alone resumes).
+#   Graph       : n320_carra2_7p10_fft.pt (arctic-lama) is reused: the LAM and n320 grids are bit-identical to
+#                 arctic-lama's, so AnemoiDatasetNodes/cutout_mask/fft_grid_indices are identical. To rebuild:
+#                 python build_graph.py --config nordic-lama --config-dir . --out <new path> (30 min on a node,
+#                 see build_graph_arctic-lama.sh) and set system.input.graph.
+#
+#   sbatch test_nordic-lama.sh                                                   # 1-node smoke test (dev queue)
+#   sbatch train_nordic-lama.sh
+#   RUN_ID=<run id> sbatch --dependency=afterany:<jobid> train_nordic-lama.sh     # next 24 h segment
+# ============================================================================
+defaults:
+  - data: zarr
+  - dataloader: native_grid
+  - diagnostics: evaluation_ens
+  - system: slurm
+  - graph: stretched_grid
+  - model: graphtransformer_ens
+  - task: forecaster
+  - training: stretched_grid_meps      # local group (this folder): DDPEnsGroupStrategy, scalers + loss overridden below
+  - _self_
+
+config_validation: False
+
+data:
+  frequency: 6h
+  datasets:
+    data:
+      forcing:
+        - cos_latitude
+        - cos_longitude
+        - sin_latitude
+        - sin_longitude
+        - cos_julian_day
+        - cos_local_time
+        - sin_julian_day
+        - sin_local_time
+        - insolation
+        - lsm
+        - z
+        - forest          # physiography (constant surfex fields), as urban-alpaca
+        - glacier
+        - lake
+        - nature
+        - sea
+        - urban
+        - sdor_100
+        - treeheight
+      diagnostic:
+        - tp
+        - ssrd
+        - strd
+        - w_50            # w diagnostic: predicted with weight 0.02, never an input (cannot degrade msl/tp)
+        - w_100
+        - w_150
+        - w_200
+        - w_250
+        - w_300
+        - w_400
+        - w_500
+        - w_700
+        - w_850
+        - w_925
+        - w_1000
+      processors:
+        normalizer:
+          _target_: anemoi.models.preprocessing.normalizer.InputNormalizer
+          config:
+            default: "mean-std"
+            std:
+              - tp
+              - ssrd
+              - tcw
+              - sd
+              # - sde          # +sde
+              - q_50
+              - q_100
+              - q_150
+              - q_200
+              - q_250
+              - q_300
+              - q_400
+              - q_500
+              - q_700
+              - q_850
+              - q_925
+              - q_1000
+            max:
+              - z
+              - sdor_100      # std of orography (m) and tree height (m): max-normalised like z
+              - treeheight
+            none:
+              - cos_latitude
+              - cos_longitude
+              - sin_latitude
+              - sin_longitude
+              - cos_julian_day
+              - cos_local_time
+              - sin_julian_day
+              - sin_local_time
+              - insolation
+              - lsm
+              - lcc
+              - mcc
+              - hcc
+              - tcc
+              - forest        # fractions in [0, 1]: no normalisation (as lsm)
+              - glacier
+              - lake
+              - nature
+              - sea
+              - urban
+        # CARRA2's snow fields (sd, sde, snowc) are NaN over sea (55 % of the LAM points, static mask). The imputer
+        # fills those with 0 (= 0 in std-normalised space; ERA5 has 0 there too) in inputs and targets;
+        # nan_mask_weights in the CRPS loss zeroes the loss there.
+        const_imputer:
+          _target_: anemoi.models.preprocessing.imputer.ConstantImputer
+          config:
+            default: "none"
+            0: [sd]           # +sde: 0: [sd, sde]
+
+dataloader:
+  num_workers:
+    training: 4
+    validation: 4
+    test: 4
+  batch_size:
+    training: 1
+    validation: 1
+    test: 1
+  prefetch_factor: 2
+  limit_batches:
+    training: null
+    validation: 50
+    test: 20
+  dataset:
+    cutout:
+    - join:                                     # LAM: the three CARRA2 decades + physiography
+        - concat:                               # one contiguous 6 h series 1986-2015
+            - dataset: ${system.input.dataset_lam_1986}
+            - dataset: ${system.input.dataset_lam_1996}
+            - dataset: ${system.input.dataset_lam_2006}
+          rescale:
+            sd: [0.001, 0.0]                    # [scale, offset]: kg m-2 (mm w.e.) -> m w.e., the ERA5 unit
+        - dataset: ${system.input.dataset_physio_lam}
+          interpolate_frequency: ${data.frequency}   # yearly constant fields -> 6 h (exact)
+      adjust: [start, end]                      # joins: dates only (adjust: all would intersect the variables)
+      reorder: sort
+    - join:                                     # global: ERA5 n320 + land companion (clouds, radiation, snow) + physiography
+        - dataset: ${system.input.dataset_global}
+        - dataset: ${system.input.dataset_global_land}
+        - dataset: ${system.input.dataset_physio_global}
+          interpolate_frequency: ${data.frequency}
+        # - dataset: ${system.input.dataset_global_snow}   # +sde: incoming ERA5 n320 1979-2023 snow depth (sde, m)
+      adjust: [start, end]
+      reorder: sort
+    adjust: all
+    min_distance_km: 0.0
+
+  select: ['10u', '10v', '2d', '2t', 'cos_julian_day', 'cos_latitude', 'cos_local_time', 'cos_longitude', 'forest', 'glacier', 'hcc', 'insolation', 'lake', 'lcc', 'lsm', 'mcc', 'msl', 'nature', 'q_100', 'q_1000', 'q_150', 'q_200', 'q_250', 'q_300', 'q_400', 'q_50', 'q_500', 'q_700', 'q_850', 'q_925', 'sd', 'sdor_100', 'sea', 'sin_julian_day', 'sin_latitude', 'sin_local_time', 'sin_longitude', 'skt', 'sp', 'ssrd', 'strd', 't_100', 't_1000', 't_150', 't_200', 't_250', 't_300', 't_400', 't_50', 't_500', 't_700', 't_850', 't_925', 'tcc', 'tcw', 'tp', 'treeheight', 'u_100', 'u_1000', 'u_150', 'u_200', 'u_250', 'u_300', 'u_400', 'u_50', 'u_500', 'u_700', 'u_850', 'u_925', 'urban', 'v_100', 'v_1000', 'v_150', 'v_200', 'v_250', 'v_300', 'v_400', 'v_50', 'v_500', 'v_700', 'v_850', 'v_925', 'w_100', 'w_1000', 'w_150', 'w_200', 'w_250', 'w_300', 'w_400', 'w_50', 'w_500', 'w_700', 'w_850', 'w_925', 'z', 'z_100', 'z_1000', 'z_150', 'z_200', 'z_250', 'z_300', 'z_400', 'z_50', 'z_500', 'z_700', 'z_850', 'z_925']
+  # +sde: append 'sde' to the select list above
+  training:
+    datasets:
+      data:
+        dataset_config:
+          dataset: ${dataloader.dataset}
+          frequency: ${data.frequency}
+          select: ${dataloader.select}
+          reorder: sort
+        start: 1986-01-01
+        end: 2014-12-31
+  validation:
+    datasets:
+      data:
+        dataset_config:
+          dataset: ${dataloader.dataset}
+          frequency: ${data.frequency}
+          select: ${dataloader.select}
+          reorder: sort
+        start: 2015-01-01
+        end: 2015-12-31
+  test:
+    datasets:
+      data:
+        dataset_config:
+          dataset: ${dataloader.dataset}
+          frequency: ${data.frequency}
+          select: ${dataloader.select}
+          reorder: sort
+        start: 2015-01-01
+        end: 2015-12-31
+
+system:
+  hardware:
+    num_gpus_per_model: 2
+    num_gpus_per_ensemble: 4           # 2 members per ensemble group
+  input:
+    dataset: ${system.input.dataset_lam_1986}   # mandatory key of the packaged system config; the dataloader uses the cutout above
+    dataset_lam_1986: /leonardo_work/EUHPC_R06_263/bris/datasets/CARRA2/carra2-nordic-1986-1995-6h-v1.zarr
+    dataset_lam_1996: /leonardo_work/EUHPC_R06_263/bris/datasets/CARRA2/carra2-nordic-1996-2005-6h-v1.zarr
+    dataset_lam_2006: /leonardo_work/EUHPC_R06_263/bris/datasets/CARRA2/carra2-nordic-2006-2015-6h-v1.zarr
+    dataset_global: /leonardo_work/AIFAC_5C0_154/weathergen/data/aifs-ea-an-oper-0001-mars-n320-1979-2023-6h-v8.zarr
+    dataset_global_land: /leonardo_work/AIFAC_5C0_154/weathergen/data/aifs-ea-an-oper-0001-mars-n320-1979-2023-6h-v1-land.zarr
+    # dataset_global_snow: TODO               # +sde: incoming ERA5 n320 1979-2023 snow-depth dataset (variable sde, m)
+    dataset_physio_lam: /leonardo_work/EUHPC_R06_263/bris/datasets/physiography-carra2-1979-2027-1yr-surface-fractions_v2.zarr
+    dataset_physio_global: /leonardo_work/EUHPC_R06_263/hhaugen/alpaca/datasets/physiography-n320-1979-2027-1yr-surface-fractions_v2-resN320.zarr   # copy of bris/datasets/...-v2 with resolution=N320
+    graph: /leonardo_work/EUHPC_R06_263/hhaugen/alpaca/graphs/n320_carra2_7p10_fft.pt   # identical grids to arctic-lama (see header)
+  output:
+    root: /leonardo_work/EUHPC_R06_263/hhaugen/alpaca/experiments
+
+graph:
+  overwrite: False
+  nodes:
+    hidden:
+      node_builder:
+        lam_resolution: 10
+        global_resolution: 7
+  attributes:
+    nodes:
+      cutout_mask:
+        _target_: anemoi.graphs.nodes.attributes.CutOutMask
+      boundary_mask:
+        _target_: anemoi.graphs.nodes.attributes.BooleanNot
+        masks:
+          _target_: anemoi.graphs.nodes.attributes.CutOutMask
+      area_weight:
+        _target_: anemoi.graphs.nodes.attributes.SphericalAreaWeights
+        norm: unit-max
+        fill_value: 0
+      lam_area_weight:
+        _target_: anemoi.graphs.nodes.attributes.MaskedPlanarAreaWeights
+        mask_node_attr_name: cutout_mask
+        norm: unit-max
+      fft_grid_indices:   # largest complete 2.5 km rectangle of the CARRA2 cutout in its own projection
+        _target_: anemoi.graphs.nodes.attributes.RegularGridIndices
+        proj4_string: "+proj=stere +lat_0=90 +lat_ts=90 +lon_0=-30 +x_0=172840.374543307 +y_0=645049.059394855 +R=6371229 +units=m +no_defs"
+        mask_node_attr_name: cutout_mask
+        x_spacing: 2500.0
+        y_spacing: 2500.0
+        relative_tolerance: 1.0e-3
+        absolute_tolerance: 5.0
+
+model:
+  num_channels: 1024
+  keep_batch_sharded: True
+  trainable_parameters:
+    data: 0
+    hidden: 0
+    data2hidden: 0
+    hidden2data: 0
+    hidden2hidden: 0
+  processor:
+    num_chunks: 8
+  encoder:
+    num_chunks: 2
+  decoder:
+    num_chunks: 2
+  # Block-level torch.compile: +45% samples/s/node. REQUIRES the torch-2.8 env; do NOT set
+  # PYTORCH_CUDA_ALLOC_CONF=expandable_segments; do NOT add a CRPS/loss compile entry
+  # (crashes validation via CUDA-graph output reuse).
+  compile:
+    - module: anemoi.models.layers.block.GraphTransformerProcessorBlock
+    - module: anemoi.models.layers.block.GraphTransformerMapperBlock
+    - module: anemoi.models.layers.normalization.ConditionalLayerNorm
+  bounding:
+    - _target_: anemoi.models.layers.bounding.ReluBounding
+      variables:
+        - tp
+        - ssrd
+        - tcw
+        - sd
+        # - sde           # +sde
+        - q_50
+        - q_100
+        - q_150
+        - q_200
+        - q_250
+        - q_300
+        - q_400
+        - q_500
+        - q_700
+        - q_850
+        - q_925
+        - q_1000
+    - _target_: anemoi.models.layers.bounding.HardtanhBounding
+      variables:
+        - tcc
+      min_val: 0
+      max_val: 1
+    - _target_: anemoi.models.layers.bounding.FractionBounding
+      variables:
+        - lcc
+        - mcc
+        - hcc
+      min_val: 0
+      max_val: 1
+      total_var: tcc
+
+task:
+  multistep_input: 2
+  multistep_output: 1
+  timestep: "6H"
+  rollout:
+    start: 1
+    epoch_increment: 0
+    maximum: 1
+  validation_rollout: 1
+
+training:
+  run_id: null             # null for a fresh run; an existing run id to resume it (RUN_ID in train_nordic-lama.sh)
+  fork_run_id: null        # from scratch
+  load_weights_only: False
+  transfer_learning: False
+  max_epochs: null
+  max_steps: 200000
+  ensemble_size_per_device: 1
+  optimization:
+    # anemoi scales lr by num_nodes * gpus_per_node / num_gpus_per_ensemble: 16 nodes -> x16 -> 1.0e-3 effective,
+    # the effective lr of the o96 alpaca pretrainings (basic/rising/urban-alpaca: 1.25e-4 on 4 nodes, 2 GPUs per
+    # ensemble group). 8 nodes: use 1.25e-4 for the same effective lr. calm-coriolis used 2e-4 effective.
+    lr: 6.25e-5
+    lr_scheduler:
+      lr_min: 3.0e-7
+      warmup_t: 1000       # t_initial = max_steps (packaged cosine_scheduler default)
+  training_loss:
+    datasets:
+      data:
+        _target_: anemoi.training.losses.CombinedLoss
+        losses:
+          - _target_: anemoi.training.losses.CRPS
+            alpha: 0.95
+            scalers: ['pressure_level', 'general_variable', 'nan_mask_weights', 'node_weights', 'time_steps']
+          - _target_: anemoi.training.losses.SpectralCRPSLoss
+            transform: fft2d
+            grid_indices_attribute: fft_grid_indices
+            alpha: 1.0
+            # no nan_mask_weights: a spectral loss cannot take grid-shaped scalers (it is a no-op without NaNs, as in
+            # arctic-lama); the imputed sd target (0 over sea) is the physically right value, as in ERA5
+            scalers: ['pressure_level', 'general_variable', 'spectral_weights', 'time_steps']
+        scalers: ['*']
+        loss_weights: [88.0, 0.2]    # CRPS (sum over the 88 outputs), FFT — lonely-lama used [87, 0.2]; +sde: [89.0, 0.2]
+  validation_metrics:
+    datasets:
+      data:
+        fkcrps:
+          _target_: anemoi.training.losses.CRPS
+          scalers: ['node_weights', 'time_steps']
+          ignore_nans: False
+          alpha: 1.0
+        spectral_fkcrps:
+          _target_: anemoi.training.losses.SpectralCRPSLoss
+          transform: fft2d
+          x_dim: null
+          y_dim: null
+          subgrid: null
+          grid_indices_attribute: fft_grid_indices
+          scalers: ['spectral_weights', 'time_steps']
+          ignore_nans: False
+          alpha: 1.0
+  scalers:
+    datasets:
+      data:
+        general_variable:
+          weights:
+            sd: 500                  # snowy-alpaca snow weight (josteinbl: o96 r4 daead4d8 and SG aa897ef3 use sd/sde 500)
+            # sde: 500               # +sde
+            w: 0.02                  # rising-lama w0.02 weight (local group default 0.001); w is diagnostic here
+        spectral_weights:
+          _target_: anemoi.training.losses.scalers.SpectralDimensionScaler
+          n_spectral_modes: 908710   # = 1210 x 751 cells of the FFT rectangle
+  metrics:
+    datasets:
+      data:
+        - z_500
+        - z_1000
+        - t_850
+        - t_500
+        - u_850
+        - v_850
+        - q_700
+        - 2t
+        - 2d
+        - 10u
+        - 10v
+        - msl
+        - sp
+        - tp
+        - tcw
+        - tcc
+        - ssrd
+        - sd
+        # - sde                     # +sde
+        - w_250
+        - w_500
+        - w_700
+        - w_850
+        - w_925
+
+diagnostics:
+  plot:
+    callbacks: []
+  log:
+    interval: 100
+    mlflow:
+      enabled: True
+      offline: True          # compute nodes have no internet; sync from a login node
+      authentication: True
+      tracking_uri: https://mlflow.ecmwf.int
+      experiment_name: metno
+      run_name: nordic-lama
+      system: True
+  # Checkpoints: step-aligned every 10k (all kept); every epoch (the latest 3 kept); rolling hourly resume checkpoint.
+  checkpoint:
+    every_n_minutes:
+      save_frequency: 60
+      num_models_saved: 1
+    every_n_epochs:
+      save_frequency: 1
+      num_models_saved: 3
+    every_n_train_steps:
+      save_frequency: 10000
+      num_models_saved: -1
