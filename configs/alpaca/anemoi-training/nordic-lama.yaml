@@ -32,9 +32,14 @@
 #   Periods     : training 1986-01-01 .. 2014-12-31 (29 y, ~42 360 samples, ~2650 steps/epoch at 16 nodes),
 #                 validation = test 2015-01-01 .. 2015-12-31 (50 validation batches).
 #   Snow NaNs   : sd/sde/snowc are NaN on 55 % of the LAM points = all sea points (static mask, every NaN point has
-#                 lsm < 0.5; the old 2023-24 store had no NaNs). ConstantImputer fills sd with 0 (ERA5 has 0 snow over
-#                 sea, so the imputed target is physically right); the CRPS loss additionally masks those points
-#                 (nan_mask_weights), the spectral loss uses the imputed field (grid scalers are not allowed there).
+#                 lsm < 0.5; the old 2023-24 store had no NaNs). ConstantImputer fills sd with 0 and the loss is NOT
+#                 masked there: 0 is the true value over water (ERA5 holds 0 too), so the model learns to output 0
+#                 over sea. This keeps rollout consistent: anemoi never re-imputes, the fed-back input over sea is the
+#                 model's own prediction (free to drift when the loss is masked, cf. snowy-alpaca's mean imputation).
+#                 Space: processors run in config order, normalizer then imputer, so the imputer value is in
+#                 NORMALISED space; sd/sde use the "std" normaliser (x / stdev, no offset), so 0 is 0 in both spaces.
+#                 Do not move sd/sde to mean-std normalisation without changing the imputer value (0 would then mean
+#                 the climatological mean). Inference output over sea is restored to NaN by the post-processor.
 #   Statistics  : anemoi takes the normalisation statistics of a concat from its FIRST part (1986-1995) and of a
 #                 cutout from the LAM part, i.e. normalisation uses CARRA2 1986-1995 statistics (sd rescaled).
 #   FFT loss    : SpectralCRPSLoss (fft2d) on the largest complete 2.5 km rectangle of the cropped CARRA2 grid
@@ -160,8 +165,9 @@ data:
               - sea
               - urban
         # CARRA2's snow fields (sd, sde, snowc) are NaN over sea (55 % of the LAM points, static mask). The imputer
-        # fills those with 0 (= 0 in std-normalised space; ERA5 has 0 there too) in inputs and targets;
-        # nan_mask_weights in the CRPS loss zeroes the loss there.
+        # runs AFTER the normalizer (config order), so its value is in normalised space: 0 = 0 m w.e. only because
+        # sd/sde are "std"-normalised (no offset). Inputs and targets get 0 over sea, and the loss is not masked
+        # there (see header), so the model learns the physically right 0 and rollout inputs stay consistent.
         const_imputer:
           _target_: anemoi.models.preprocessing.imputer.ConstantImputer
           config:
@@ -378,13 +384,14 @@ training:
         losses:
           - _target_: anemoi.training.losses.CRPS
             alpha: 0.95
-            scalers: ['pressure_level', 'general_variable', 'nan_mask_weights', 'node_weights', 'time_steps']
+            # no nan_mask_weights (2026-10-20): the imputed sd target (0 over sea) is the true value, and an unmasked
+            # loss makes the model output 0 there, which keeps the fed-back rollout input identical to the imputed
+            # input (anemoi does not re-impute during rollout). A spectral loss cannot take grid scalers anyway.
+            scalers: ['pressure_level', 'general_variable', 'node_weights', 'time_steps']
           - _target_: anemoi.training.losses.SpectralCRPSLoss
             transform: fft2d
             grid_indices_attribute: fft_grid_indices
             alpha: 1.0
-            # no nan_mask_weights: a spectral loss cannot take grid-shaped scalers (it is a no-op without NaNs, as in
-            # arctic-lama); the imputed sd target (0 over sea) is the physically right value, as in ERA5
             scalers: ['pressure_level', 'general_variable', 'spectral_weights', 'time_steps']
         scalers: ['*']
         loss_weights: [88.0, 0.2]    # CRPS (sum over the 88 outputs), FFT — lonely-lama used [87, 0.2]; +sde: [89.0, 0.2]
