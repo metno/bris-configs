@@ -10,16 +10,18 @@
 #   Global data : ERA5 n320 1979-2023 (v8, 101 vars) joined with its land companion (30 vars: cloud fractions,
 #                 radiation, snow, soil); the only global dataset on Leonardo that covers 1986-2015. The n320 grid
 #                 is identical to the operational n320 used by lonely-lama/arctic-lama.
-#   Variables   : the 87 lonely-lama outputs + snow depth water equivalent `sd` (88 outputs) + 11 forcings + 8 static
+#   Variables   : the 87 lonely-lama outputs + snow water equivalent `sd` + snow depth `sde` (89 outputs) + 11 forcings + 8 static
 #                 physiography forcings. Snow unit fix: CARRA2 stores sd in kg m-2 (= mm w.e.), ERA5 in m w.e. -> the
 #                 LAM sd is rescaled by 0.001 at open time (anemoi-datasets `rescale`, statistics rescaled too).
 #                 Loss weight 500 for sd (and sde): the snowy-alpaca snow scale (checkpoint metadata of josteinbl's
 #                 o96 r4 daead4d8 and SG aa897ef3 runs).
-#   Snow depth  : `sde` (snow depth, m; in CARRA2 and in the incoming ERA5 n320 snow-depth dataset, cf. josteinbl's
-#                 snowy-alpaca-SG and aifs-ea-...-o96-1979-2023-6h-v1-land-reduced_snow_depth.zarr). PLACEHOLDER: the
-#                 global dataset is not there yet, so every sde line is commented and tagged "+sde". To enable: set
-#                 system.input.dataset_global_snow, uncomment the join entry and the "+sde" lines (select, normalizer,
-#                 imputer, bounding, metrics), set loss_weights to [89, 0.2] (89 outputs).
+#   Snow depth  : `sde` (snow depth, m) is the second snow field: CARRA2 has it, and on the global side josteinbl's
+#                 aifs-ea-an-oper-0001-mars-n320-1979-2023-6h-v1-land_snow_depth.zarr (sde from ERA5 sd/rsn, n320 grid,
+#                 1986-2023, 0 over sea, no NaN) is joined into the global branch. 89 outputs -> loss_weights [89, 0.2].
+#   Slim snow   : PLACEHOLDER (tagged "+slim"): slim copies of the CARRA2 stores holding only sd/sde/snowc with 0 in
+#                 place of the sea NaNs (~50 GiB for all decades). Once built: set system.input.dataset_lam_snow_*,
+#                 uncomment the "+slim" lines (drop the snow fields from the full stores, join the slim concat) and
+#                 remove the const_imputer; the loss then needs no NaN handling at all.
 #   Physiography: 8 constant surfex fields (forest, glacier, lake, nature, sea, urban, sdor_100, treeheight) as
 #                 forcings, as urban-alpaca: bris/datasets/physiography-carra2-1979-2027-1yr-surface-fractions_v2 on
 #                 the LAM and physiography-n320-...-v2 on the global grid (yearly dates expanded with
@@ -32,7 +34,7 @@
 #   Periods     : training 1986-01-01 .. 2014-12-31 (29 y, ~42 360 samples, ~2650 steps/epoch at 16 nodes),
 #                 validation = test 2015-01-01 .. 2015-12-31 (50 validation batches).
 #   Snow NaNs   : sd/sde/snowc are NaN on 55 % of the LAM points = all sea points (static mask, every NaN point has
-#                 lsm < 0.5; the old 2023-24 store had no NaNs). ConstantImputer fills sd with 0 and the loss is NOT
+#                 lsm < 0.5; the old 2023-24 store had no NaNs). ConstantImputer fills sd/sde with 0 and the loss is NOT
 #                 masked there: 0 is the true value over water (ERA5 holds 0 too), so the model learns to output 0
 #                 over sea. This keeps rollout consistent: anemoi never re-imputes, the fed-back input over sea is the
 #                 model's own prediction (free to drift when the loss is masked, cf. snowy-alpaca's mean imputation).
@@ -44,8 +46,8 @@
 #                 cutout from the LAM part, i.e. normalisation uses CARRA2 1986-1995 statistics (sd rescaled).
 #   FFT loss    : SpectralCRPSLoss (fft2d) on the largest complete 2.5 km rectangle of the cropped CARRA2 grid
 #                 (RegularGridIndices node attribute, 1210 x 751 = 908 710 points, 56 % of the LAM), as arctic-lama.
-#                 Loss weights [88, 0.2] (CRPS summed over the 88 outputs instead of averaged, FFT x 0.2; lonely-lama
-#                 used [87, 0.2] for 87 outputs; 89 once sde is in).
+#                 Loss weights [89, 0.2] (CRPS summed over the 89 outputs instead of averaged, FFT x 0.2; lonely-lama
+#                 used [87, 0.2] for 87 outputs).
 #   Model       : GraphTransformer ensemble, 1024 channels, hidden 7/10, 2 GPUs per model, 2 members per group,
 #                 chunking 8/2/2 (memory, as arctic-lama), compiled blocks (torch-2.8 env).
 #   Schedule    : from scratch (no fork, no warm start), 200 000 steps at rollout 1 (~75 epochs), base lr 6.25e-5 =
@@ -126,7 +128,7 @@ data:
               - ssrd
               - tcw
               - sd
-              # - sde          # +sde
+              - sde
               - q_50
               - q_100
               - q_150
@@ -172,7 +174,7 @@ data:
           _target_: anemoi.models.preprocessing.imputer.ConstantImputer
           config:
             default: "none"
-            0: [sd]           # +sde: 0: [sd, sde]
+            0: [sd, sde]      # +slim: remove this imputer once the slim zero-filled snow stores are in
 
 dataloader:
   num_workers:
@@ -197,6 +199,13 @@ dataloader:
             - dataset: ${system.input.dataset_lam_2006}
           rescale:
             sd: [0.001, 0.0]                    # [scale, offset]: kg m-2 (mm w.e.) -> m w.e., the ERA5 unit
+          # drop: [sd, sde, snowc]              # +slim: the snow fields then come from the slim stores below
+        # - concat:                             # +slim: zero-filled sd/sde(/snowc) copies, same dates and grid
+        #     - dataset: ${system.input.dataset_lam_snow_1986}
+        #     - dataset: ${system.input.dataset_lam_snow_1996}
+        #     - dataset: ${system.input.dataset_lam_snow_2006}
+        #   rescale:
+        #     sd: [0.001, 0.0]                  # only if the slim copies keep CARRA2's kg m-2
         - dataset: ${system.input.dataset_physio_lam}
           interpolate_frequency: ${data.frequency}   # yearly constant fields -> 6 h (exact)
       adjust: [start, end]                      # joins: dates only (adjust: all would intersect the variables)
@@ -204,16 +213,15 @@ dataloader:
     - join:                                     # global: ERA5 n320 + land companion (clouds, radiation, snow) + physiography
         - dataset: ${system.input.dataset_global}
         - dataset: ${system.input.dataset_global_land}
+        - dataset: ${system.input.dataset_global_snow}     # sde (snow depth, m) on n320, 1986-2023, 0 over sea
         - dataset: ${system.input.dataset_physio_global}
           interpolate_frequency: ${data.frequency}
-        # - dataset: ${system.input.dataset_global_snow}   # +sde: incoming ERA5 n320 1979-2023 snow depth (sde, m)
       adjust: [start, end]
       reorder: sort
     adjust: all
     min_distance_km: 0.0
 
-  select: ['10u', '10v', '2d', '2t', 'cos_julian_day', 'cos_latitude', 'cos_local_time', 'cos_longitude', 'forest', 'glacier', 'hcc', 'insolation', 'lake', 'lcc', 'lsm', 'mcc', 'msl', 'nature', 'q_100', 'q_1000', 'q_150', 'q_200', 'q_250', 'q_300', 'q_400', 'q_50', 'q_500', 'q_700', 'q_850', 'q_925', 'sd', 'sdor_100', 'sea', 'sin_julian_day', 'sin_latitude', 'sin_local_time', 'sin_longitude', 'skt', 'sp', 'ssrd', 'strd', 't_100', 't_1000', 't_150', 't_200', 't_250', 't_300', 't_400', 't_50', 't_500', 't_700', 't_850', 't_925', 'tcc', 'tcw', 'tp', 'treeheight', 'u_100', 'u_1000', 'u_150', 'u_200', 'u_250', 'u_300', 'u_400', 'u_50', 'u_500', 'u_700', 'u_850', 'u_925', 'urban', 'v_100', 'v_1000', 'v_150', 'v_200', 'v_250', 'v_300', 'v_400', 'v_50', 'v_500', 'v_700', 'v_850', 'v_925', 'w_100', 'w_1000', 'w_150', 'w_200', 'w_250', 'w_300', 'w_400', 'w_50', 'w_500', 'w_700', 'w_850', 'w_925', 'z', 'z_100', 'z_1000', 'z_150', 'z_200', 'z_250', 'z_300', 'z_400', 'z_50', 'z_500', 'z_700', 'z_850', 'z_925']
-  # +sde: append 'sde' to the select list above
+  select: ['10u', '10v', '2d', '2t', 'cos_julian_day', 'cos_latitude', 'cos_local_time', 'cos_longitude', 'forest', 'glacier', 'hcc', 'insolation', 'lake', 'lcc', 'lsm', 'mcc', 'msl', 'nature', 'q_100', 'q_1000', 'q_150', 'q_200', 'q_250', 'q_300', 'q_400', 'q_50', 'q_500', 'q_700', 'q_850', 'q_925', 'sd', 'sde', 'sdor_100', 'sea', 'sin_julian_day', 'sin_latitude', 'sin_local_time', 'sin_longitude', 'skt', 'sp', 'ssrd', 'strd', 't_100', 't_1000', 't_150', 't_200', 't_250', 't_300', 't_400', 't_50', 't_500', 't_700', 't_850', 't_925', 'tcc', 'tcw', 'tp', 'treeheight', 'u_100', 'u_1000', 'u_150', 'u_200', 'u_250', 'u_300', 'u_400', 'u_50', 'u_500', 'u_700', 'u_850', 'u_925', 'urban', 'v_100', 'v_1000', 'v_150', 'v_200', 'v_250', 'v_300', 'v_400', 'v_50', 'v_500', 'v_700', 'v_850', 'v_925', 'w_100', 'w_1000', 'w_150', 'w_200', 'w_250', 'w_300', 'w_400', 'w_50', 'w_500', 'w_700', 'w_850', 'w_925', 'z', 'z_100', 'z_1000', 'z_150', 'z_200', 'z_250', 'z_300', 'z_400', 'z_50', 'z_500', 'z_700', 'z_850', 'z_925']
   training:
     datasets:
       data:
@@ -256,7 +264,10 @@ system:
     dataset_lam_2006: /leonardo_work/EUHPC_R06_263/bris/datasets/CARRA2/carra2-nordic-2006-2015-6h-v1.zarr
     dataset_global: /leonardo_work/AIFAC_5C0_154/weathergen/data/aifs-ea-an-oper-0001-mars-n320-1979-2023-6h-v8.zarr
     dataset_global_land: /leonardo_work/AIFAC_5C0_154/weathergen/data/aifs-ea-an-oper-0001-mars-n320-1979-2023-6h-v1-land.zarr
-    # dataset_global_snow: TODO               # +sde: incoming ERA5 n320 1979-2023 snow-depth dataset (variable sde, m)
+    dataset_global_snow: /leonardo_work/EUHPC_R06_263/josteinbl/Data/zarr/aifs-ea-an-oper-0001-mars-n320-1979-2023-6h-v1-land_snow_depth.zarr   # sde from ERA5 sd/rsn (josteinbl), n320, 1986-2023
+    # dataset_lam_snow_1986: TODO            # +slim: zero-filled sd/sde(/snowc) copies of the CARRA2 stores (to be built)
+    # dataset_lam_snow_1996: TODO
+    # dataset_lam_snow_2006: TODO
     dataset_physio_lam: /leonardo_work/EUHPC_R06_263/bris/datasets/physiography-carra2-1979-2027-1yr-surface-fractions_v2.zarr
     dataset_physio_global: /leonardo_work/EUHPC_R06_263/hhaugen/alpaca/datasets/physiography-n320-1979-2027-1yr-surface-fractions_v2-resN320.zarr   # copy of bris/datasets/...-v2 with resolution=N320
     graph: /leonardo_work/EUHPC_R06_263/hhaugen/alpaca/graphs/n320_carra2_7p10_fft.pt   # identical grids to arctic-lama (see header)
@@ -324,7 +335,7 @@ model:
         - ssrd
         - tcw
         - sd
-        # - sde           # +sde
+        - sde
         - q_50
         - q_100
         - q_150
@@ -394,7 +405,7 @@ training:
             alpha: 1.0
             scalers: ['pressure_level', 'general_variable', 'spectral_weights', 'time_steps']
         scalers: ['*']
-        loss_weights: [88.0, 0.2]    # CRPS (sum over the 88 outputs), FFT — lonely-lama used [87, 0.2]; +sde: [89.0, 0.2]
+        loss_weights: [89.0, 0.2]    # CRPS (sum over the 89 outputs), FFT — lonely-lama used [87, 0.2] for 87 outputs
   validation_metrics:
     datasets:
       data:
@@ -419,7 +430,7 @@ training:
         general_variable:
           weights:
             sd: 500                  # snowy-alpaca snow weight (josteinbl: o96 r4 daead4d8 and SG aa897ef3 use sd/sde 500)
-            # sde: 500               # +sde
+            sde: 500
             w: 0.02                  # rising-lama w0.02 weight (local group default 0.001); w is diagnostic here
         spectral_weights:
           _target_: anemoi.training.losses.scalers.SpectralDimensionScaler
@@ -445,7 +456,7 @@ training:
         - tcc
         - ssrd
         - sd
-        # - sde                     # +sde
+        - sde
         - w_250
         - w_500
         - w_700
