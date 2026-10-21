@@ -22,8 +22,10 @@
 #                 place of the sea NaNs (~50 GiB for all decades). Once built: set system.input.dataset_lam_snow_*,
 #                 uncomment the "+slim" lines (drop the snow fields from the full stores, join the slim concat) and
 #                 remove the const_imputer; the loss then needs no NaN handling at all.
-#   Physiography: 8 constant surfex fields (forest, glacier, lake, nature, sea, urban, sdor_100, treeheight) as
-#                 forcings, as urban-alpaca: bris/datasets/physiography-carra2-1979-2027-1yr-surface-fractions_v2 on
+#   Physiography: 13 constant surfex fields as forcings (forest, glacier, lake, nature, sea, urban, sdor_100, sdor_30,
+#                 slor_x/y_100, slor_x/y_30, treeheight; the urban-alpaca 8 plus the 30 km orography terms): all that
+#                 exist on both grids. The CARRA2 store also has sdor_2p5/slor_x_2p5/slor_y_2p5, absent from the n320
+#                 store, so they cannot go through the cutout. bris/datasets/physiography-carra2-1979-2027-1yr-surface-fractions_v2 on
 #                 the LAM and physiography-n320-...-v2 on the global grid (yearly dates expanded with
 #                 interpolate_frequency 6h, exact for constant fields). The n320 store has no resolution attribute,
 #                 which anemoi-datasets refuses to join with N320 -> hhaugen/alpaca/datasets/...-v2-resN320.zarr is a
@@ -94,13 +96,18 @@ data:
         - insolation
         - lsm
         - z
-        - forest          # physiography (constant surfex fields), as urban-alpaca
-        - glacier
+        - forest          # physiography (constant surfex fields): the 13 present on BOTH grids (the CARRA2 store also
+        - glacier         # has sdor_2p5, slor_x_2p5, slor_y_2p5, which the n320 store lacks -> a cutout cannot carry them)
         - lake
         - nature
         - sea
         - urban
         - sdor_100
+        - sdor_30
+        - slor_x_100
+        - slor_x_30
+        - slor_y_100
+        - slor_y_30
         - treeheight
       diagnostic:
         - tp
@@ -144,6 +151,7 @@ data:
             max:
               - z
               - sdor_100      # std of orography (m) and tree height (m): max-normalised like z
+              - sdor_30
               - treeheight
             none:
               - cos_latitude
@@ -221,7 +229,7 @@ dataloader:
     adjust: all
     min_distance_km: 0.0
 
-  select: ['10u', '10v', '2d', '2t', 'cos_julian_day', 'cos_latitude', 'cos_local_time', 'cos_longitude', 'forest', 'glacier', 'hcc', 'insolation', 'lake', 'lcc', 'lsm', 'mcc', 'msl', 'nature', 'q_100', 'q_1000', 'q_150', 'q_200', 'q_250', 'q_300', 'q_400', 'q_50', 'q_500', 'q_700', 'q_850', 'q_925', 'sd', 'sde', 'sdor_100', 'sea', 'sin_julian_day', 'sin_latitude', 'sin_local_time', 'sin_longitude', 'skt', 'sp', 'ssrd', 'strd', 't_100', 't_1000', 't_150', 't_200', 't_250', 't_300', 't_400', 't_50', 't_500', 't_700', 't_850', 't_925', 'tcc', 'tcw', 'tp', 'treeheight', 'u_100', 'u_1000', 'u_150', 'u_200', 'u_250', 'u_300', 'u_400', 'u_50', 'u_500', 'u_700', 'u_850', 'u_925', 'urban', 'v_100', 'v_1000', 'v_150', 'v_200', 'v_250', 'v_300', 'v_400', 'v_50', 'v_500', 'v_700', 'v_850', 'v_925', 'w_100', 'w_1000', 'w_150', 'w_200', 'w_250', 'w_300', 'w_400', 'w_50', 'w_500', 'w_700', 'w_850', 'w_925', 'z', 'z_100', 'z_1000', 'z_150', 'z_200', 'z_250', 'z_300', 'z_400', 'z_50', 'z_500', 'z_700', 'z_850', 'z_925']
+  select: ['10u', '10v', '2d', '2t', 'cos_julian_day', 'cos_latitude', 'cos_local_time', 'cos_longitude', 'forest', 'glacier', 'hcc', 'insolation', 'lake', 'lcc', 'lsm', 'mcc', 'msl', 'nature', 'q_100', 'q_1000', 'q_150', 'q_200', 'q_250', 'q_300', 'q_400', 'q_50', 'q_500', 'q_700', 'q_850', 'q_925', 'sd', 'sde', 'sdor_100', 'sdor_30', 'sea', 'sin_julian_day', 'slor_x_100', 'slor_x_30', 'slor_y_100', 'slor_y_30', 'sin_latitude', 'sin_local_time', 'sin_longitude', 'skt', 'sp', 'ssrd', 'strd', 't_100', 't_1000', 't_150', 't_200', 't_250', 't_300', 't_400', 't_50', 't_500', 't_700', 't_850', 't_925', 'tcc', 'tcw', 'tp', 'treeheight', 'u_100', 'u_1000', 'u_150', 'u_200', 'u_250', 'u_300', 'u_400', 'u_50', 'u_500', 'u_700', 'u_850', 'u_925', 'urban', 'v_100', 'v_1000', 'v_150', 'v_200', 'v_250', 'v_300', 'v_400', 'v_50', 'v_500', 'v_700', 'v_850', 'v_925', 'w_100', 'w_1000', 'w_150', 'w_200', 'w_250', 'w_300', 'w_400', 'w_50', 'w_500', 'w_700', 'w_850', 'w_925', 'z', 'z_100', 'z_1000', 'z_150', 'z_200', 'z_250', 'z_300', 'z_400', 'z_50', 'z_500', 'z_700', 'z_850', 'z_925']
   training:
     datasets:
       data:
