@@ -13,8 +13,8 @@
 #   Variables   : the 87 lonely-lama outputs + snow water equivalent `sd` + snow depth `sde` (89 outputs) + 11 forcings + 8 static
 #                 physiography forcings. Snow unit fix: CARRA2 stores sd in kg m-2 (= mm w.e.), ERA5 in m w.e. -> the
 #                 LAM sd is rescaled by 0.001 at open time (anemoi-datasets `rescale`, statistics rescaled too).
-#                 Loss weight 500 for sd (and sde): the snowy-alpaca snow scale (checkpoint metadata of josteinbl's
-#                 o96 r4 daead4d8 and SG aa897ef3 runs).
+#                 Loss weight 200 for sd and sde (snowy-alpaca used 500 = 7-10 % of its total loss; 200 is ~3-4 %,
+#                 about one important pressure level).
 #   Snow depth  : `sde` (snow depth, m) is the second snow field: CARRA2 has it, and on the global side josteinbl's
 #                 aifs-ea-an-oper-0001-mars-n320-1979-2023-6h-v1-land_snow_depth.zarr (sde from ERA5 sd/rsn, n320 grid,
 #                 1986-2023, 0 over sea, no NaN) is joined into the global branch. 89 outputs -> loss_weights [89, 0.2].
@@ -429,8 +429,8 @@ training:
       data:
         general_variable:
           weights:
-            sd: 500                  # snowy-alpaca snow weight (josteinbl: o96 r4 daead4d8 and SG aa897ef3 use sd/sde 500)
-            sde: 500
+            sd: 200                  # snowy-alpaca used 500 (7-10 % of its loss, measured 2026-10-20); 200 keeps snow at
+            sde: 200                 # roughly the weight of one important level (~3-4 %) instead of the top two fields
             w: 0.02                  # rising-lama w0.02 weight (local group default 0.001); w is diagnostic here
         spectral_weights:
           _target_: anemoi.training.losses.scalers.SpectralDimensionScaler
