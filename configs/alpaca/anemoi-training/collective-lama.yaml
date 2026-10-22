@@ -1,14 +1,15 @@
 # ============================================================================
-# nordic-lama.yaml — stretched-grid ensemble model trained FROM SCRATCH on the CARRA2 Nordic 2.5 km reanalysis
-# (1986-2015) with ERA5 n320 as the global boundary. Standalone: only packaged anemoi-core groups and the local
+# collective-lama.yaml — stretched-grid ensemble model trained FROM SCRATCH on the CARRA2 Nordic 2.5 km reanalysis
+# (1986-2025, training 1986-2022) with ERA5 n320 as the global boundary. Standalone: only packaged anemoi-core groups and the local
 # training/ group of this folder are used (no lonely-lama / arctic-lama defaults). Recipe = arctic-lama
 # (dataset, graph, FFT loss) + the o96 alpaca pretraining schedule (200k steps at rollout 1, effective lr 1e-3).
 #
-#   LAM data    : carra2-nordic-{1986-1995,1996-2005,2006-2015}-6h-v1.zarr concatenated (one contiguous 6 h series
-#                 1986-01-01 12 UTC .. 2015-12-31 18 UTC, 43 826 dates, 115 variables, 1 619 121 points on the
-#                 2.5 km polar-stereographic grid cropped to 49-76 N; same grid as carra2-2.5km-20230101-20241231).
+#   LAM data    : carra2-nordic-{1986-1995,1996-2005,2006-2015,2016-2025}-6h-v1.zarr concatenated (one contiguous
+#                 6 h series 1986-01-01 12 UTC .. 2025-12-31 18 UTC, 58 438 dates, 115 variables, 1 619 121 points on
+#                 the 2.5 km polar-stereographic grid cropped to 49-76 N; same grid as carra2-2.5km-20230101-20241231).
+#                 The fourth decade was transferred 2026-10-17..20 and verified 2026-10-22 (logs/check_carra2_4th.py).
 #   Global data : ERA5 n320 1979-2023 (v8, 101 vars) joined with its land companion (30 vars: cloud fractions,
-#                 radiation, snow, soil); the only global dataset on Leonardo that covers 1986-2015. The n320 grid
+#                 radiation, snow, soil); the only global dataset on Leonardo that covers 1986-2023. The n320 grid
 #                 is identical to the operational n320 used by lonely-lama/arctic-lama.
 #   Variables   : the 87 lonely-lama outputs + snow water equivalent `sd` + snow depth `sde` (89 outputs) + 11 forcings + 8 static
 #                 physiography forcings. Snow unit fix: CARRA2 stores sd in kg m-2 (= mm w.e.), ERA5 in m w.e. -> the
@@ -18,10 +19,11 @@
 #   Snow depth  : `sde` (snow depth, m) is the second snow field: CARRA2 has it, and on the global side josteinbl's
 #                 aifs-ea-an-oper-0001-mars-n320-1979-2023-6h-v1-land_snow_depth.zarr (sde from ERA5 sd/rsn, n320 grid,
 #                 1986-2023, 0 over sea, no NaN) is joined into the global branch. 89 outputs -> loss_weights [89, 0.2].
-#   Slim snow   : PLACEHOLDER (tagged "+slim"): slim copies of the CARRA2 stores holding only sd/sde/snowc with 0 in
-#                 place of the sea NaNs (~50 GiB for all decades). Once built: set system.input.dataset_lam_snow_*,
-#                 uncomment the "+slim" lines (drop the snow fields from the full stores, join the slim concat) and
-#                 remove the const_imputer; the loss then needs no NaN handling at all.
+#   Slim snow   : the LAM snow fields come from josteinbl/Data/zarr/carra2-nordic-<decade>-6h-v1-snow.zarr: copies of
+#                 sd and sde only, built from the full stores with anemoi-transform's impute_nans (0 in place of the
+#                 sea NaNs; statistics recomputed with the zeros, has_nans false; same grid and dates). The full
+#                 stores' sd/sde/snowc are dropped. No imputer and no NaN mask anywhere: the composed dataset is
+#                 NaN-free (verified 2026-10-22, logs/check_slim_snow.py).
 #   Physiography: all 16 constant surfex fields of the CARRA2 store as forcings (forest, glacier, lake, nature, sea,
 #                 urban, treeheight, sdor_100/30/2p5, slor_x_100/30/2p5, slor_y_100/30/2p5). The n320 store has no
 #                 2.5 km terms, so the global branch joins its 30 km terms a second time renamed to the 2p5 names
@@ -34,17 +36,16 @@
 #   w           : vertical velocity is DIAGNOSTIC (output only, not fed back as input) with loss weight 0.02 (the
 #                 rising-lama w0.02 weight, rising-alpaca pre-trained with 0.2); as a diagnostic its errors cannot
 #                 feed back into the prognostic state (mslp, tp).
-#   Periods     : training 1986-01-01 .. 2014-12-31 (29 y, ~42 360 samples, ~2650 steps/epoch at 16 nodes),
-#                 validation = test 2015-01-01 .. 2015-12-31 (50 validation batches).
-#   Snow NaNs   : sd/sde/snowc are NaN on 55 % of the LAM points = all sea points (static mask, every NaN point has
-#                 lsm < 0.5; the old 2023-24 store had no NaNs). ConstantImputer fills sd/sde with 0 and the loss is NOT
-#                 masked there: 0 is the true value over water (ERA5 holds 0 too), so the model learns to output 0
-#                 over sea. This keeps rollout consistent: anemoi never re-imputes, the fed-back input over sea is the
-#                 model's own prediction (free to drift when the loss is masked, cf. snowy-alpaca's mean imputation).
-#                 Space: processors run in config order, normalizer then imputer, so the imputer value is in
-#                 NORMALISED space; sd/sde use the "std" normaliser (x / stdev, no offset), so 0 is 0 in both spaces.
-#                 Do not move sd/sde to mean-std normalisation without changing the imputer value (0 would then mean
-#                 the climatological mean). Inference output over sea is restored to NaN by the post-processor.
+#   Periods     : training 1986-01-01 .. 2022-12-31 (37 y, ~54 050 samples, ~3380 steps/epoch at 16 nodes, 200k
+#                 steps = ~59 epochs), validation = test 2023-01-01 .. 2023-12-31 (50 validation batches). The
+#                 global stores (ERA5 n320 v8, its land companion, the sde store) end on 2023-12-31, so 2024-2025 of
+#                 the LAM data are unused until 2024-2025 extensions of all three exist (the cutout intersects dates).
+#   Snow units  : CARRA2 sd stays in kg m-2 (= mm w.e.) in the slim stores, ERA5 sd is in m w.e. -> rescale x0.001
+#                 on the slim concat; sde is in metres on both sides (CARRA2 sde m; ERA5 sde = sd / rsn, m), no
+#                 rescale. Checked on common land points: sde ratio 1.1-1.2, sd 1.5-1.9 after the rescale (analysis
+#                 differences, not units). Snow is 0 over sea on both sides, as in ERA5, so the model learns sd = sde
+#                 = 0 over water and the fed-back rollout input stays consistent. No imputer: with one, anemoi would
+#                 restore NaN over sea in post-processing (NaN validation metrics, NaN in bris output).
 #   Statistics  : anemoi takes the normalisation statistics of a concat from its FIRST part (1986-1995) and of a
 #                 cutout from the LAM part, i.e. normalisation uses CARRA2 1986-1995 statistics (sd rescaled).
 #   FFT loss    : SpectralCRPSLoss (fft2d) on the largest complete 2.5 km rectangle of the cropped CARRA2 grid
@@ -52,7 +53,9 @@
 #                 Loss weights [89, 0.2] (CRPS summed over the 89 outputs instead of averaged, FFT x 0.2; lonely-lama
 #                 used [87, 0.2] for 87 outputs).
 #   Model       : GraphTransformer ensemble, 1024 channels, hidden 7/10, 2 GPUs per model, 2 members per group,
-#                 chunking 8/2/2 (memory, as arctic-lama), compiled blocks (torch-2.8 env).
+#                 chunking 16/8/8 (35.5 GB per GPU instead of 62.5 with arctic-lama's 8/2/2, same step time; see
+#                 model.*.num_chunks), compiled blocks (torch-2.8 env). 4 workers per rank (1: loader-bound, 8: CPU
+#                 contention). 4 GPUs per model would cost 17 % throughput per node and is not needed for memory.
 #   Schedule    : from scratch (no fork, no warm start), 200 000 steps at rollout 1 (~75 epochs), base lr 6.25e-5 =
 #                 effective 1.0e-3 on 16 nodes (x num_nodes*gpus_per_node/num_gpus_per_ensemble = x16), the effective
 #                 lr of the o96 alpaca pretrainings (1.25e-4 x 16/2 on 4 nodes x bs 2; same 16 samples per step),
@@ -61,12 +64,12 @@
 #                 RUN_ID alone resumes).
 #   Graph       : n320_carra2_7p10_fft.pt (arctic-lama) is reused: the LAM and n320 grids are bit-identical to
 #                 arctic-lama's, so AnemoiDatasetNodes/cutout_mask/fft_grid_indices are identical. To rebuild:
-#                 python build_graph.py --config nordic-lama --config-dir . --out <new path> (30 min on a node,
+#                 python build_graph.py --config collective-lama --config-dir . --out <new path> (30 min on a node,
 #                 see build_graph_arctic-lama.sh) and set system.input.graph.
 #
-#   sbatch test_nordic-lama.sh                                                   # 1-node smoke test (dev queue)
-#   sbatch train_nordic-lama.sh
-#   RUN_ID=<run id> sbatch --dependency=afterany:<jobid> train_nordic-lama.sh     # next 24 h segment
+#   sbatch test_collective-lama.sh                                                   # 1-node smoke test (dev queue)
+#   sbatch train_collective-lama.sh
+#   RUN_ID=<run id> sbatch --dependency=afterany:<jobid> train_collective-lama.sh     # next 24 h segment
 # ============================================================================
 defaults:
   - data: zarr
@@ -179,15 +182,6 @@ data:
               - nature
               - sea
               - urban
-        # CARRA2's snow fields (sd, sde, snowc) are NaN over sea (55 % of the LAM points, static mask). The imputer
-        # runs AFTER the normalizer (config order), so its value is in normalised space: 0 = 0 m w.e. only because
-        # sd/sde are "std"-normalised (no offset). Inputs and targets get 0 over sea, and the loss is not masked
-        # there (see header), so the model learns the physically right 0 and rollout inputs stay consistent.
-        const_imputer:
-          _target_: anemoi.models.preprocessing.imputer.ConstantImputer
-          config:
-            default: "none"
-            0: [sd, sde]      # +slim: remove this imputer once the slim zero-filled snow stores are in
 
 dataloader:
   num_workers:
@@ -205,20 +199,20 @@ dataloader:
     test: 20
   dataset:
     cutout:
-    - join:                                     # LAM: the three CARRA2 decades + physiography
-        - concat:                               # one contiguous 6 h series 1986-2015
+    - join:                                     # LAM: the four CARRA2 decades (snow fields dropped) + slim snow + physiography
+        - concat:                               # one contiguous 6 h series 1986-2025
             - dataset: ${system.input.dataset_lam_1986}
             - dataset: ${system.input.dataset_lam_1996}
             - dataset: ${system.input.dataset_lam_2006}
+            - dataset: ${system.input.dataset_lam_2016}
+          drop: [sd, sde, snowc]                # NaN over sea in the full stores; sd/sde come from the slim stores
+        - concat:                               # zero-filled sd/sde copies, same dates and grid, no NaN
+            - dataset: ${system.input.dataset_lam_snow_1986}
+            - dataset: ${system.input.dataset_lam_snow_1996}
+            - dataset: ${system.input.dataset_lam_snow_2006}
+            - dataset: ${system.input.dataset_lam_snow_2016}
           rescale:
-            sd: [0.001, 0.0]                    # [scale, offset]: kg m-2 (mm w.e.) -> m w.e., the ERA5 unit
-          # drop: [sd, sde, snowc]              # +slim: the snow fields then come from the slim stores below
-        # - concat:                             # +slim: zero-filled sd/sde(/snowc) copies, same dates and grid
-        #     - dataset: ${system.input.dataset_lam_snow_1986}
-        #     - dataset: ${system.input.dataset_lam_snow_1996}
-        #     - dataset: ${system.input.dataset_lam_snow_2006}
-        #   rescale:
-        #     sd: [0.001, 0.0]                  # only if the slim copies keep CARRA2's kg m-2
+            sd: [0.001, 0.0]                    # [scale, offset]: kg m-2 (mm w.e.) -> m w.e., the ERA5 unit; sde is m on both sides
         - dataset: ${system.input.dataset_physio_lam}
           interpolate_frequency: ${data.frequency}   # yearly constant fields -> 6 h (exact)
       adjust: [start, end]                      # joins: dates only (adjust: all would intersect the variables)
@@ -248,7 +242,7 @@ dataloader:
           select: ${dataloader.select}
           reorder: sort
         start: 1986-01-01
-        end: 2014-12-31
+        end: 2022-12-31
   validation:
     datasets:
       data:
@@ -257,8 +251,8 @@ dataloader:
           frequency: ${data.frequency}
           select: ${dataloader.select}
           reorder: sort
-        start: 2015-01-01
-        end: 2015-12-31
+        start: 2023-01-01
+        end: 2023-12-31
   test:
     datasets:
       data:
@@ -267,8 +261,8 @@ dataloader:
           frequency: ${data.frequency}
           select: ${dataloader.select}
           reorder: sort
-        start: 2015-01-01
-        end: 2015-12-31
+        start: 2023-01-01
+        end: 2023-12-31
 
 system:
   hardware:
@@ -279,12 +273,14 @@ system:
     dataset_lam_1986: /leonardo_work/EUHPC_R06_263/bris/datasets/CARRA2/carra2-nordic-1986-1995-6h-v1.zarr
     dataset_lam_1996: /leonardo_work/EUHPC_R06_263/bris/datasets/CARRA2/carra2-nordic-1996-2005-6h-v1.zarr
     dataset_lam_2006: /leonardo_work/EUHPC_R06_263/bris/datasets/CARRA2/carra2-nordic-2006-2015-6h-v1.zarr
+    dataset_lam_2016: /leonardo_work/EUHPC_R06_263/bris/datasets/CARRA2/carra2-nordic-2016-2025-6h-v1.zarr
     dataset_global: /leonardo_work/AIFAC_5C0_154/weathergen/data/aifs-ea-an-oper-0001-mars-n320-1979-2023-6h-v8.zarr
     dataset_global_land: /leonardo_work/AIFAC_5C0_154/weathergen/data/aifs-ea-an-oper-0001-mars-n320-1979-2023-6h-v1-land.zarr
     dataset_global_snow: /leonardo_work/EUHPC_R06_263/josteinbl/Data/zarr/aifs-ea-an-oper-0001-mars-n320-1979-2023-6h-v1-land_snow_depth.zarr   # sde from ERA5 sd/rsn (josteinbl), n320, 1986-2023
-    # dataset_lam_snow_1986: TODO            # +slim: zero-filled sd/sde(/snowc) copies of the CARRA2 stores (to be built)
-    # dataset_lam_snow_1996: TODO
-    # dataset_lam_snow_2006: TODO
+    dataset_lam_snow_1986: /leonardo_work/EUHPC_R06_263/josteinbl/Data/zarr/carra2-nordic-1986-1995-6h-v1-snow.zarr   # sd/sde, 0 over sea
+    dataset_lam_snow_1996: /leonardo_work/EUHPC_R06_263/josteinbl/Data/zarr/carra2-nordic-1996-2005-6h-v1-snow.zarr
+    dataset_lam_snow_2006: /leonardo_work/EUHPC_R06_263/josteinbl/Data/zarr/carra2-nordic-2006-2015-6h-v1-snow.zarr
+    dataset_lam_snow_2016: /leonardo_work/EUHPC_R06_263/josteinbl/Data/zarr/carra2-nordic-2016-2025-6h-v1-snow.zarr
     dataset_physio_lam: /leonardo_work/EUHPC_R06_263/bris/datasets/physiography-carra2-1979-2027-1yr-surface-fractions_v2.zarr
     dataset_physio_global: /leonardo_work/EUHPC_R06_263/hhaugen/alpaca/datasets/physiography-n320-1979-2027-1yr-surface-fractions_v2-resN320.zarr   # copy of bris/datasets/...-v2 with resolution=N320
     graph: /leonardo_work/EUHPC_R06_263/hhaugen/alpaca/graphs/n320_carra2_7p10_fft.pt   # identical grids to arctic-lama (see header)
@@ -332,12 +328,12 @@ model:
     data2hidden: 0
     hidden2data: 0
     hidden2hidden: 0
-  processor:
-    num_chunks: 8
-  encoder:
-    num_chunks: 2
+  processor:                   # chunking from the 2026-10-22 benchmark (benchmark_collective_lama.sh, 1 node, 2 GPUs/model):
+    num_chunks: 16             # 8/2/2 -> 62.5 GB of 64 GB and 8.6 s/step; 16/8/8 -> 35.5 GB at 8.2 s/step (twice);
+  encoder:                     # 16/16/16 gains nothing more (35.8 GB, 8.6 s). Encoder/decoder chunks are the memory
+    num_chunks: 8              # lever on this grid, processor chunks hardly matter; 2/1/2 and 8/1/1 run out of memory.
   decoder:
-    num_chunks: 2
+    num_chunks: 8
   # Block-level torch.compile: +45% samples/s/node. REQUIRES the torch-2.8 env; do NOT set
   # PYTORCH_CUDA_ALLOC_CONF=expandable_segments; do NOT add a CRPS/loss compile entry
   # (crashes validation via CUDA-graph output reuse).
@@ -390,7 +386,7 @@ task:
   validation_rollout: 1
 
 training:
-  run_id: null             # null for a fresh run; an existing run id to resume it (RUN_ID in train_nordic-lama.sh)
+  run_id: null             # null for a fresh run; an existing run id to resume it (RUN_ID in train_collective-lama.sh)
   fork_run_id: null        # from scratch
   load_weights_only: False
   transfer_learning: False
@@ -412,9 +408,7 @@ training:
         losses:
           - _target_: anemoi.training.losses.CRPS
             alpha: 0.95
-            # no nan_mask_weights (2026-10-20): the imputed sd target (0 over sea) is the true value, and an unmasked
-            # loss makes the model output 0 there, which keeps the fed-back rollout input identical to the imputed
-            # input (anemoi does not re-impute during rollout). A spectral loss cannot take grid scalers anyway.
+            # no nan_mask_weights: the data are NaN-free (zero-filled snow stores); 0 over sea is the true target
             scalers: ['pressure_level', 'general_variable', 'node_weights', 'time_steps']
           - _target_: anemoi.training.losses.SpectralCRPSLoss
             transform: fft2d
@@ -491,7 +485,7 @@ diagnostics:
       authentication: True
       tracking_uri: https://mlflow.ecmwf.int
       experiment_name: metno
-      run_name: nordic-lama
+      run_name: collective-lama
       system: True
   # Checkpoints: step-aligned every 10k (all kept); every epoch (the latest 3 kept); rolling hourly resume checkpoint.
   checkpoint:
